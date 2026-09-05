@@ -1,0 +1,7 @@
+<resources>
+    <string name="app_name">MoodyRoutine</string>
+    <string name="notification_channel_name">Automation Service</string>
+    <string name="notification_channel_description">Keeps MoodyRoutine running in the background</string>
+    <string name="service_notification_title">MoodyRoutine is active</string>
+    <string name="service_notification_text">Monitoring your routines</string>
+</resources>

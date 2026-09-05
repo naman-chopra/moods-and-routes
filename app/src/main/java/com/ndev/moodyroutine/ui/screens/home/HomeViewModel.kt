@@ -1,0 +1,54 @@
+package com.ndev.moodyroutine.ui.screens.home
+
+import android.app.Application
+import androidx.lifecycle.AndroidViewModel
+import androidx.lifecycle.viewModelScope
+import com.ndev.moodyroutine.data.db.MoodyRoutineDatabase
+import com.ndev.moodyroutine.data.model.Mode
+import com.ndev.moodyroutine.data.model.Routine
+import com.ndev.moodyroutine.data.repository.ModeRepository
+import com.ndev.moodyroutine.data.repository.RoutineRepository
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.catch
+import kotlinx.coroutines.launch
+
+class HomeViewModel(application: Application) : AndroidViewModel(application) {
+    private val db = MoodyRoutineDatabase.getInstance(application)
+    private val modeRepository = ModeRepository(db.modeDao())
+    private val routineRepository = RoutineRepository(db.routineDao())
+
+    private val _modes = MutableStateFlow<List<Mode>>(emptyList())
+    val modes: StateFlow<List<Mode>> = _modes
+
+    private val _routines = MutableStateFlow<List<Routine>>(emptyList())
+    val routines: StateFlow<List<Routine>> = _routines
+
+    private val _isServiceRunning = MutableStateFlow(false)
+    val isServiceRunning: StateFlow<Boolean> = _isServiceRunning
+
+    init {
+        viewModelScope.launch {
+            modeRepository.getAllModes().catch { }.collect { _modes.value = it }
+        }
+        viewModelScope.launch {
+            routineRepository.getAllRoutines().catch { }.collect { _routines.value = it }
+        }
+    }
+
+    fun toggleModeActive(modeId: Long, active: Boolean) {
+        viewModelScope.launch { modeRepository.setModeActive(modeId, active) }
+    }
+
+    fun toggleRoutineEnabled(routineId: Long, enabled: Boolean) {
+        viewModelScope.launch { routineRepository.setRoutineEnabled(routineId, enabled) }
+    }
+
+    fun deleteMode(mode: Mode) {
+        viewModelScope.launch { modeRepository.deleteMode(mode) }
+    }
+
+    fun deleteRoutine(routine: Routine) {
+        viewModelScope.launch { routineRepository.deleteRoutine(routine) }
+    }
+}
