@@ -1,15 +1,23 @@
 package com.ndev.moodyroutine.ui.screens.routines
 
 import android.app.Application
+import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.ArrowBack
-import androidx.compose.material.icons.filled.Delete
-import androidx.compose.material.icons.filled.Edit
+import androidx.compose.material.icons.automirrored.rounded.ArrowBack
+import androidx.compose.material.icons.rounded.ArrowDownward
+import androidx.compose.material.icons.rounded.DeleteOutline
+import androidx.compose.material.icons.rounded.Edit
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
@@ -19,6 +27,8 @@ import com.ndev.moodyroutine.data.db.MoodyRoutineDatabase
 import com.ndev.moodyroutine.data.model.Routine
 import com.ndev.moodyroutine.data.repository.RoutineRepository
 import com.ndev.moodyroutine.ui.navigation.Screen
+import com.ndev.moodyroutine.ui.util.HumanFormatter
+import com.ndev.moodyroutine.ui.util.UiIcons
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.launch
@@ -36,13 +46,13 @@ class RoutineDetailViewModel(application: Application) : AndroidViewModel(applic
     fun deleteRoutine(onComplete: () -> Unit) {
         val currentRoutine = _routine.value
         if (currentRoutine != null) {
-            viewModelScope.launch { 
+            viewModelScope.launch {
                 repository.deleteRoutine(currentRoutine)
                 onComplete()
             }
         }
     }
-    
+
     fun toggleEnabled(enabled: Boolean) {
         val currentRoutine = _routine.value
         if (currentRoutine != null) {
@@ -62,42 +72,207 @@ fun RoutineDetailScreen(
     val routine by viewModel.routine.collectAsState()
     var showDeleteDialog by remember { mutableStateOf(false) }
 
-    val currentRoutine = routine
-    if (currentRoutine == null) return
+    val currentRoutine = routine ?: return
 
     Scaffold(
+        containerColor = MaterialTheme.colorScheme.background,
         topBar = {
             TopAppBar(
-                title = { Text(currentRoutine.name) },
+                title = { Text(currentRoutine.name, fontWeight = FontWeight.Bold) },
                 navigationIcon = {
-                    IconButton(onClick = { navController.popBackStack() }) { Icon(Icons.Default.ArrowBack, "Back") }
+                    IconButton(onClick = { navController.popBackStack() }) {
+                        Icon(Icons.AutoMirrored.Rounded.ArrowBack, contentDescription = "Back")
+                    }
                 },
                 actions = {
                     IconButton(onClick = { navController.navigate(Screen.RoutineCreate.createRoute(currentRoutine.id)) }) {
-                        Icon(Icons.Default.Edit, "Edit")
+                        Icon(Icons.Rounded.Edit, contentDescription = "Edit")
                     }
-                    IconButton(onClick = { showDeleteDialog = true }) { Icon(Icons.Default.Delete, "Delete") }
-                }
+                    IconButton(onClick = { showDeleteDialog = true }) {
+                        Icon(Icons.Rounded.DeleteOutline, contentDescription = "Delete", tint = MaterialTheme.colorScheme.error)
+                    }
+                },
+                colors = TopAppBarDefaults.topAppBarColors(
+                    containerColor = MaterialTheme.colorScheme.background
+                )
             )
         }
     ) { padding ->
-        Column(modifier = Modifier.padding(padding).padding(16.dp).fillMaxSize()) {
-            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.SpaceBetween, modifier = Modifier.fillMaxWidth()) {
-                Text("Enabled", style = MaterialTheme.typography.titleMedium)
-                Switch(checked = currentRoutine.isEnabled, onCheckedChange = { viewModel.toggleEnabled(it) })
+        LazyColumn(
+            modifier = Modifier
+                .padding(padding)
+                .fillMaxSize()
+                .padding(horizontal = 20.dp),
+            verticalArrangement = Arrangement.spacedBy(16.dp),
+            contentPadding = PaddingValues(vertical = 16.dp)
+        ) {
+            // State Switch Card
+            item {
+                Surface(
+                    shape = RoundedCornerShape(20.dp),
+                    color = MaterialTheme.colorScheme.surface,
+                    tonalElevation = 2.dp,
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(20.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.SpaceBetween
+                    ) {
+                        Column {
+                            Text("Routine status", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
+                            Text(
+                                if (currentRoutine.isEnabled) "Running automatically" else "Disabled",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
+                        Switch(
+                            checked = currentRoutine.isEnabled,
+                            onCheckedChange = { viewModel.toggleEnabled(it) }
+                        )
+                    }
+                }
             }
-            Spacer(modifier = Modifier.height(32.dp))
-            
-            Text("IF", style = MaterialTheme.typography.headlineSmall, color = MaterialTheme.colorScheme.primary)
-            currentRoutine.triggers.forEach { trigger ->
-                Text("- ${trigger.type.name}", modifier = Modifier.padding(vertical = 4.dp))
+
+            // IF Header
+            item {
+                Column(modifier = Modifier.padding(top = 8.dp)) {
+                    Text(
+                        text = "If",
+                        style = MaterialTheme.typography.headlineMedium,
+                        fontWeight = FontWeight.Bold,
+                        color = MaterialTheme.colorScheme.primary
+                    )
+                    Text(
+                        text = "When conditions are met",
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
             }
-            
-            Spacer(modifier = Modifier.height(16.dp))
-            
-            Text("THEN", style = MaterialTheme.typography.headlineSmall, color = MaterialTheme.colorScheme.primary)
-            currentRoutine.actions.forEach { action ->
-                Text("- ${action.type.name}", modifier = Modifier.padding(vertical = 4.dp))
+
+            items(currentRoutine.triggers) { trigger ->
+                val (title, subtitle) = HumanFormatter.formatTrigger(trigger)
+                val icon = UiIcons.getTriggerIcon(trigger.type)
+                val color = UiIcons.getTriggerColor(trigger.type.category)
+
+                Surface(
+                    shape = RoundedCornerShape(20.dp),
+                    color = MaterialTheme.colorScheme.surface,
+                    tonalElevation = 2.dp,
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(16.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Box(
+                            modifier = Modifier
+                                .size(46.dp)
+                                .clip(RoundedCornerShape(14.dp))
+                                .background(color.copy(alpha = 0.15f)),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Icon(
+                                imageVector = icon,
+                                contentDescription = null,
+                                tint = color,
+                                modifier = Modifier.size(26.dp)
+                            )
+                        }
+
+                        Spacer(modifier = Modifier.width(16.dp))
+
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text(title, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
+                            Text(subtitle, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        }
+                    }
+                }
+            }
+
+            // Arrow
+            item {
+                Box(modifier = Modifier.fillMaxWidth(), contentAlignment = Alignment.Center) {
+                    Box(
+                        modifier = Modifier
+                            .size(32.dp)
+                            .clip(CircleShape)
+                            .background(MaterialTheme.colorScheme.surfaceVariant),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Icon(
+                            Icons.Rounded.ArrowDownward,
+                            contentDescription = null,
+                            tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                            modifier = Modifier.size(18.dp)
+                        )
+                    }
+                }
+            }
+
+            // THEN Header
+            item {
+                Column {
+                    Text(
+                        text = "Then",
+                        style = MaterialTheme.typography.headlineMedium,
+                        fontWeight = FontWeight.Bold,
+                        color = MaterialTheme.colorScheme.primary
+                    )
+                    Text(
+                        text = "The following actions will run",
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+            }
+
+            items(currentRoutine.actions) { action ->
+                val (title, subtitle) = HumanFormatter.formatAction(action)
+                val icon = UiIcons.getActionIcon(action.type)
+                val color = UiIcons.getActionColor(action.type.category)
+
+                Surface(
+                    shape = RoundedCornerShape(20.dp),
+                    color = MaterialTheme.colorScheme.surface,
+                    tonalElevation = 2.dp,
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(16.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Box(
+                            modifier = Modifier
+                                .size(46.dp)
+                                .clip(RoundedCornerShape(14.dp))
+                                .background(color.copy(alpha = 0.15f)),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Icon(
+                                imageVector = icon,
+                                contentDescription = null,
+                                tint = color,
+                                modifier = Modifier.size(26.dp)
+                            )
+                        }
+
+                        Spacer(modifier = Modifier.width(16.dp))
+
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text(title, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
+                            Text(subtitle, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        }
+                    }
+                }
             }
         }
     }
@@ -105,10 +280,19 @@ fun RoutineDetailScreen(
     if (showDeleteDialog) {
         AlertDialog(
             onDismissRequest = { showDeleteDialog = false },
-            title = { Text("Delete Routine") },
-            text = { Text("Are you sure you want to delete this routine?") },
-            confirmButton = { TextButton(onClick = { viewModel.deleteRoutine { navController.popBackStack() } }) { Text("Delete") } },
-            dismissButton = { TextButton(onClick = { showDeleteDialog = false }) { Text("Cancel") } }
+            title = { Text("Delete routine?", fontWeight = FontWeight.Bold) },
+            text = { Text("This will permanently remove \"${currentRoutine.name}\".") },
+            confirmButton = {
+                Button(
+                    onClick = { viewModel.deleteRoutine { navController.popBackStack() } },
+                    colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.error)
+                ) {
+                    Text("Delete")
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { showDeleteDialog = false }) { Text("Cancel") }
+            }
         )
     }
 }
