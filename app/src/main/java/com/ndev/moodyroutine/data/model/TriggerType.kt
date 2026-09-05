@@ -1,7 +1,7 @@
 package com.ndev.moodyroutine.data.model
 
 enum class TriggerCategory {
-    TIME, BATTERY, CONNECTIVITY, APP, DEVICE
+    TIME, LOCATION, BATTERY, CONNECTIVITY, APP, DEVICE
 }
 
 enum class TriggerType(
@@ -13,6 +13,8 @@ enum class TriggerType(
     TIME_OF_DAY("Time of day", "Trigger at a specific time", "Schedule", TriggerCategory.TIME),
     TIME_RANGE("Time range", "Trigger during a time range", "Update", TriggerCategory.TIME),
     DAY_OF_WEEK("Day of week", "Trigger on specific days", "CalendarMonth", TriggerCategory.TIME),
+    LOCATION_ARRIVE("Arrive at place", "Trigger when arriving at a location", "LocationOn", TriggerCategory.LOCATION),
+    LOCATION_LEAVE("Leave place", "Trigger when leaving a location", "LocationOff", TriggerCategory.LOCATION),
     BATTERY_LEVEL("Battery level", "Trigger at a specific battery level", "BatteryFull", TriggerCategory.BATTERY),
     BATTERY_CHARGING("Battery charging", "Trigger when charging", "BatteryChargingFull", TriggerCategory.BATTERY),
     BATTERY_DISCHARGING("Battery discharging", "Trigger when unplugged", "BatteryAlert", TriggerCategory.BATTERY),

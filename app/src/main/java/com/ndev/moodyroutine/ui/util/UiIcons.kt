@@ -21,6 +21,8 @@ object UiIcons {
             TriggerType.TIME_OF_DAY -> Icons.Rounded.Schedule
             TriggerType.TIME_RANGE -> Icons.Rounded.DateRange
             TriggerType.DAY_OF_WEEK -> Icons.Rounded.CalendarMonth
+            TriggerType.LOCATION_ARRIVE -> Icons.Rounded.LocationOn
+            TriggerType.LOCATION_LEAVE -> Icons.Rounded.LocationOff
             TriggerType.BATTERY_LEVEL -> Icons.Rounded.BatteryFull
             TriggerType.BATTERY_CHARGING -> Icons.Rounded.BatteryChargingFull
             TriggerType.BATTERY_DISCHARGING -> Icons.Rounded.BatteryAlert
@@ -44,6 +46,7 @@ object UiIcons {
     fun getTriggerColor(category: TriggerCategory): Color {
         return when (category) {
             TriggerCategory.TIME -> AccentPurple
+            TriggerCategory.LOCATION -> Color(0xFFE11D48)
             TriggerCategory.BATTERY -> AccentGreen
             TriggerCategory.CONNECTIVITY -> SamsungBlue
             TriggerCategory.APP -> AccentPink

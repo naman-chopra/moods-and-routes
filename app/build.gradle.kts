@@ -83,5 +83,8 @@ dependencies {
     // DataStore
     implementation(libs.androidx.datastore.preferences)
 
+    // Location
+    implementation(libs.play.services.location)
+
     debugImplementation(libs.androidx.ui.tooling)
 }

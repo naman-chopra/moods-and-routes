@@ -22,6 +22,8 @@ import com.ndev.moodyroutine.data.model.ActionType
 import com.ndev.moodyroutine.ui.dialogs.*
 import com.ndev.moodyroutine.ui.util.UiIcons
 
+private val allActionTypes = ActionType.values().toList()
+
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun ActionPickerSheet(
@@ -114,16 +116,21 @@ fun ActionPickerSheet(
         else -> {}
     }
 
-    val filteredTypes = if (searchQuery.isBlank()) {
-        ActionType.values().toList()
-    } else {
-        ActionType.values().filter {
-            it.displayName.contains(searchQuery, ignoreCase = true) ||
-                    it.description.contains(searchQuery, ignoreCase = true)
+    // Memoize filtering and grouping to prevent scroll jank
+    val filteredTypes = remember(searchQuery) {
+        if (searchQuery.isBlank()) {
+            allActionTypes
+        } else {
+            allActionTypes.filter {
+                it.displayName.contains(searchQuery, ignoreCase = true) ||
+                        it.description.contains(searchQuery, ignoreCase = true)
+            }
         }
     }
 
-    val grouped = filteredTypes.groupBy { it.category }
+    val grouped = remember(filteredTypes) {
+        filteredTypes.groupBy { it.category }
+    }
 
     ModalBottomSheet(
         onDismissRequest = onDismiss,
@@ -161,7 +168,7 @@ fun ActionPickerSheet(
                 modifier = Modifier.weight(1f)
             ) {
                 grouped.forEach { (category, types) ->
-                    item {
+                    item(key = "category_${category.name}") {
                         Text(
                             text = when (category) {
                                 ActionCategory.SOUND -> "Sound and vibration"
@@ -177,7 +184,7 @@ fun ActionPickerSheet(
                         )
                     }
 
-                    items(types) { type ->
+                    items(types, key = { it.name }) { type ->
                         val icon = UiIcons.getActionIcon(type)
                         val color = UiIcons.getActionColor(type.category)
 

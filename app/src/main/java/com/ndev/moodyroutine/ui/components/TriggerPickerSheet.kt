@@ -22,6 +22,8 @@ import com.ndev.moodyroutine.data.model.TriggerType
 import com.ndev.moodyroutine.ui.dialogs.*
 import com.ndev.moodyroutine.ui.util.UiIcons
 
+private val allTriggerTypes = TriggerType.values().toList()
+
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun TriggerPickerSheet(
@@ -31,7 +33,6 @@ fun TriggerPickerSheet(
     var searchQuery by remember { mutableStateOf("") }
     var configuringTriggerType by remember { mutableStateOf<TriggerType?>(null) }
 
-    // Dialog state
     when (configuringTriggerType) {
         TriggerType.TIME_OF_DAY -> {
             TimeConfigDialog(
@@ -41,6 +42,36 @@ fun TriggerPickerSheet(
                         TriggerConfig(
                             type = TriggerType.TIME_OF_DAY,
                             params = mapOf("time" to time, "days" to days)
+                        )
+                    )
+                    configuringTriggerType = null
+                }
+            )
+        }
+        TriggerType.LOCATION_ARRIVE -> {
+            LocationConfigDialog(
+                isArrive = true,
+                onDismiss = { configuringTriggerType = null },
+                onConfirm = { name, radius ->
+                    onTriggerSelected(
+                        TriggerConfig(
+                            type = TriggerType.LOCATION_ARRIVE,
+                            params = mapOf("locationName" to name, "radius" to radius.toString())
+                        )
+                    )
+                    configuringTriggerType = null
+                }
+            )
+        }
+        TriggerType.LOCATION_LEAVE -> {
+            LocationConfigDialog(
+                isArrive = false,
+                onDismiss = { configuringTriggerType = null },
+                onConfirm = { name, radius ->
+                    onTriggerSelected(
+                        TriggerConfig(
+                            type = TriggerType.LOCATION_LEAVE,
+                            params = mapOf("locationName" to name, "radius" to radius.toString())
                         )
                     )
                     configuringTriggerType = null
@@ -120,16 +151,21 @@ fun TriggerPickerSheet(
         else -> {}
     }
 
-    val filteredTypes = if (searchQuery.isBlank()) {
-        TriggerType.values().toList()
-    } else {
-        TriggerType.values().filter {
-            it.displayName.contains(searchQuery, ignoreCase = true) ||
-                    it.description.contains(searchQuery, ignoreCase = true)
+    // Memoize filtering and grouping to prevent scroll jank
+    val filteredTypes = remember(searchQuery) {
+        if (searchQuery.isBlank()) {
+            allTriggerTypes
+        } else {
+            allTriggerTypes.filter {
+                it.displayName.contains(searchQuery, ignoreCase = true) ||
+                        it.description.contains(searchQuery, ignoreCase = true)
+            }
         }
     }
 
-    val grouped = filteredTypes.groupBy { it.category }
+    val grouped = remember(filteredTypes) {
+        filteredTypes.groupBy { it.category }
+    }
 
     ModalBottomSheet(
         onDismissRequest = onDismiss,
@@ -167,10 +203,11 @@ fun TriggerPickerSheet(
                 modifier = Modifier.weight(1f)
             ) {
                 grouped.forEach { (category, types) ->
-                    item {
+                    item(key = "category_${category.name}") {
                         Text(
                             text = when (category) {
-                                TriggerCategory.TIME -> "Time and place"
+                                TriggerCategory.TIME -> "Time"
+                                TriggerCategory.LOCATION -> "Place and location"
                                 TriggerCategory.BATTERY -> "Battery"
                                 TriggerCategory.CONNECTIVITY -> "Connections"
                                 TriggerCategory.APP -> "Apps"
@@ -183,7 +220,7 @@ fun TriggerPickerSheet(
                         )
                     }
 
-                    items(types) { type ->
+                    items(types, key = { it.name }) { type ->
                         val icon = UiIcons.getTriggerIcon(type)
                         val color = UiIcons.getTriggerColor(type.category)
 
@@ -196,6 +233,8 @@ fun TriggerPickerSheet(
                                 .clickable {
                                     when (type) {
                                         TriggerType.TIME_OF_DAY,
+                                        TriggerType.LOCATION_ARRIVE,
+                                        TriggerType.LOCATION_LEAVE,
                                         TriggerType.BATTERY_LEVEL,
                                         TriggerType.WIFI_SPECIFIC_NETWORK,
                                         TriggerType.BLUETOOTH_SPECIFIC_DEVICE,

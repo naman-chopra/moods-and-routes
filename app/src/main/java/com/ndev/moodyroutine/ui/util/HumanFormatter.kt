@@ -24,6 +24,14 @@ object HumanFormatter {
                 val days = trigger.params["days"]?.let { formatDays(it) } ?: "Weekdays"
                 days
             }
+            TriggerType.LOCATION_ARRIVE -> {
+                val loc = trigger.params["locationName"] ?: "Selected place"
+                "Arriving at \"$loc\""
+            }
+            TriggerType.LOCATION_LEAVE -> {
+                val loc = trigger.params["locationName"] ?: "Selected place"
+                "Leaving \"$loc\""
+            }
             TriggerType.BATTERY_LEVEL -> {
                 val level = trigger.params["level"] ?: "20"
                 val comparison = trigger.params["comparison"] ?: "below"

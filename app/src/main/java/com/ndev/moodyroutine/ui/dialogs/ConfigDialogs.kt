@@ -233,6 +233,93 @@ fun BatteryConfigDialog(
 }
 
 @Composable
+fun LocationConfigDialog(
+    isArrive: Boolean = true,
+    initialLocationName: String = "Home",
+    initialRadius: Int = 150,
+    onDismiss: () -> Unit,
+    onConfirm: (locationName: String, radius: Int) -> Unit
+) {
+    var locationName by remember { mutableStateOf(initialLocationName) }
+    var radius by remember { mutableIntStateOf(initialRadius) }
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = {
+            Text(
+                if (isArrive) "Arrive at Place" else "Leave Place",
+                fontWeight = FontWeight.Bold
+            )
+        },
+        text = {
+            Column(
+                modifier = Modifier.fillMaxWidth(),
+                verticalArrangement = Arrangement.spacedBy(14.dp)
+            ) {
+                Text(
+                    text = if (isArrive) "Trigger this routine when you arrive at this place."
+                    else "Trigger this routine when you leave this place.",
+                    style = MaterialTheme.typography.bodyMedium
+                )
+
+                OutlinedTextField(
+                    value = locationName,
+                    onValueChange = { locationName = it },
+                    label = { Text("Place Name") },
+                    placeholder = { Text("e.g. Home, Work, Gym, School") },
+                    singleLine = true,
+                    shape = RoundedCornerShape(14.dp),
+                    modifier = Modifier.fillMaxWidth()
+                )
+
+                // Quick preset chips
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    listOf("Home", "Work", "Gym", "School").forEach { preset ->
+                        FilterChip(
+                            selected = locationName.equals(preset, ignoreCase = true),
+                            onClick = { locationName = preset },
+                            label = { Text(preset) }
+                        )
+                    }
+                }
+
+                // Radius slider
+                Column {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween
+                    ) {
+                        Text("Target Area Radius", style = MaterialTheme.typography.bodyMedium)
+                        Text("${radius}m", style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.primary)
+                    }
+                    Slider(
+                        value = radius.toFloat(),
+                        onValueChange = { radius = it.toInt() },
+                        valueRange = 50f..1000f,
+                        steps = 18,
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                }
+            }
+        },
+        confirmButton = {
+            Button(
+                onClick = { onConfirm(locationName.trim().ifBlank { if (isArrive) "Home" else "Work" }, radius) },
+                enabled = locationName.isNotBlank()
+            ) {
+                Text("Done")
+            }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) { Text("Cancel") }
+        }
+    )
+}
+
+@Composable
 fun WifiConfigDialog(
     initialName: String = "",
     onDismiss: () -> Unit,
