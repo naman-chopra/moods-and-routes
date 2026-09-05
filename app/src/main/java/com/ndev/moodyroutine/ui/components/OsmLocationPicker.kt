@@ -6,10 +6,13 @@ import android.location.Geocoder
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.expandVertically
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
+import androidx.compose.animation.shrinkVertically
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.gestures.detectVerticalDragGestures
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
@@ -28,9 +31,11 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
@@ -190,6 +195,10 @@ fun OsmLocationPickerDialog(
     var isSelectingSuggestion by remember { mutableStateOf(false) }
     var isLocating by remember { mutableStateOf(false) }
 
+    // Bottom drawer expand/collapse state
+    var isDrawerExpanded by remember { mutableStateOf(true) }
+    var accumulatedDrag by remember { mutableFloatStateOf(0f) }
+
     var mapViewRef by remember { mutableStateOf<MapView?>(null) }
     val fusedLocationClient = remember { LocationServices.getFusedLocationProviderClient(context) }
     var reverseGeocodeJob by remember { mutableStateOf<Job?>(null) }
@@ -296,24 +305,6 @@ fun OsmLocationPickerDialog(
                     navigationIcon = {
                         IconButton(onClick = onDismiss) {
                             Icon(Icons.AutoMirrored.Rounded.ArrowBack, contentDescription = "Close")
-                        }
-                    },
-                    actions = {
-                        Button(
-                            onClick = {
-                                onConfirm(
-                                    isArrive,
-                                    locationName.trim().ifBlank { if (isArrive) "Home" else "Work" },
-                                    addressText,
-                                    currentGeoPoint.latitude,
-                                    currentGeoPoint.longitude,
-                                    radius
-                                )
-                            },
-                            shape = RoundedCornerShape(20.dp),
-                            modifier = Modifier.padding(end = 8.dp)
-                        ) {
-                            Text("Done", fontWeight = FontWeight.Bold)
                         }
                     },
                     colors = TopAppBarDefaults.topAppBarColors(
@@ -662,45 +653,63 @@ fun OsmLocationPickerDialog(
                     }
                 }
 
-                // Bottom Configuration Card (One UI Style, Scrollable)
+                // Draggable Bottom Drawer (One UI Style with Smooth Swipe Gestures)
                 Surface(
-                    shape = RoundedCornerShape(topStart = 26.dp, topEnd = 26.dp),
+                    shape = RoundedCornerShape(topStart = 28.dp, topEnd = 28.dp),
                     color = MaterialTheme.colorScheme.surface,
-                    tonalElevation = 6.dp,
-                    shadowElevation = 8.dp,
-                    modifier = Modifier.fillMaxWidth()
+                    tonalElevation = 8.dp,
+                    shadowElevation = 10.dp,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .pointerInput(Unit) {
+                            detectVerticalDragGestures(
+                                onDragEnd = {
+                                    if (accumulatedDrag > 35f) {
+                                        isDrawerExpanded = false
+                                    } else if (accumulatedDrag < -35f) {
+                                        isDrawerExpanded = true
+                                    }
+                                    accumulatedDrag = 0f
+                                },
+                                onVerticalDrag = { change, dragAmount ->
+                                    change.consume()
+                                    accumulatedDrag += dragAmount
+                                }
+                            )
+                        }
                 ) {
                     Column(
                         modifier = Modifier
                             .fillMaxWidth()
-                            .verticalScroll(rememberScrollState())
-                            .padding(horizontal = 20.dp, vertical = 16.dp),
-                        verticalArrangement = Arrangement.spacedBy(12.dp)
+                            .navigationBarsPadding()
+                            .padding(horizontal = 20.dp)
+                            .padding(bottom = 16.dp),
+                        verticalArrangement = Arrangement.spacedBy(10.dp)
                     ) {
-                        // When I arrive vs When I leave selector
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.spacedBy(8.dp)
+                        // Drag Handle (Swipe up/down or tap to toggle)
+                        Box(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clickable { isDrawerExpanded = !isDrawerExpanded }
+                                .padding(top = 10.dp, bottom = 4.dp),
+                            contentAlignment = Alignment.Center
                         ) {
-                            FilterChip(
-                                selected = isArrive,
-                                onClick = { isArrive = true },
-                                label = { Text("When I arrive") },
-                                leadingIcon = if (isArrive) { { Icon(Icons.Rounded.Check, contentDescription = null, modifier = Modifier.size(16.dp)) } } else null,
-                                modifier = Modifier.weight(1f)
-                            )
-                            FilterChip(
-                                selected = !isArrive,
-                                onClick = { isArrive = false },
-                                label = { Text("When I leave") },
-                                leadingIcon = if (!isArrive) { { Icon(Icons.Rounded.Check, contentDescription = null, modifier = Modifier.size(16.dp)) } } else null,
-                                modifier = Modifier.weight(1f)
+                            Box(
+                                modifier = Modifier
+                                    .width(42.dp)
+                                    .height(4.dp)
+                                    .background(
+                                        MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.35f),
+                                        RoundedCornerShape(2.dp)
+                                    )
                             )
                         }
 
-                        // Place name & Address details
+                        // Place name & Address details row (Always visible)
                         Row(
-                            modifier = Modifier.fillMaxWidth(),
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clickable { isDrawerExpanded = !isDrawerExpanded },
                             verticalAlignment = Alignment.CenterVertically
                         ) {
                             Box(
@@ -734,31 +743,73 @@ fun OsmLocationPickerDialog(
                                     maxLines = 1
                                 )
                             }
-                        }
-
-                        // Target Area Radius Slider
-                        Column {
-                            Row(
-                                modifier = Modifier.fillMaxWidth(),
-                                horizontalArrangement = Arrangement.SpaceBetween
-                            ) {
-                                Text("Target area radius", style = MaterialTheme.typography.bodyMedium)
-                                Text(
-                                    "${radius}m",
-                                    style = MaterialTheme.typography.bodyMedium,
-                                    fontWeight = FontWeight.Bold,
-                                    color = MaterialTheme.colorScheme.primary
+                            // Small indicator showing if expanded or collapsed
+                            IconButton(onClick = { isDrawerExpanded = !isDrawerExpanded }) {
+                                Icon(
+                                    if (isDrawerExpanded) Icons.Rounded.KeyboardArrowDown else Icons.Rounded.KeyboardArrowUp,
+                                    contentDescription = "Toggle drawer",
+                                    tint = MaterialTheme.colorScheme.onSurfaceVariant
                                 )
                             }
-                            Slider(
-                                value = radius.toFloat(),
-                                onValueChange = { radius = it.toInt() },
-                                valueRange = 50f..1000f,
-                                steps = 18,
-                                modifier = Modifier.fillMaxWidth()
-                            )
                         }
 
+                        // Expandable Content (When I arrive/leave chips + Radius Slider)
+                        AnimatedVisibility(
+                            visible = isDrawerExpanded,
+                            enter = expandVertically() + fadeIn(),
+                            exit = shrinkVertically() + fadeOut()
+                        ) {
+                            Column(
+                                verticalArrangement = Arrangement.spacedBy(10.dp),
+                                modifier = Modifier.fillMaxWidth()
+                            ) {
+                                // When I arrive vs When I leave selector
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                                ) {
+                                    FilterChip(
+                                        selected = isArrive,
+                                        onClick = { isArrive = true },
+                                        label = { Text("When I arrive") },
+                                        leadingIcon = if (isArrive) { { Icon(Icons.Rounded.Check, contentDescription = null, modifier = Modifier.size(16.dp)) } } else null,
+                                        modifier = Modifier.weight(1f)
+                                    )
+                                    FilterChip(
+                                        selected = !isArrive,
+                                        onClick = { isArrive = false },
+                                        label = { Text("When I leave") },
+                                        leadingIcon = if (!isArrive) { { Icon(Icons.Rounded.Check, contentDescription = null, modifier = Modifier.size(16.dp)) } } else null,
+                                        modifier = Modifier.weight(1f)
+                                    )
+                                }
+
+                                // Target Area Radius Slider
+                                Column {
+                                    Row(
+                                        modifier = Modifier.fillMaxWidth(),
+                                        horizontalArrangement = Arrangement.SpaceBetween
+                                    ) {
+                                        Text("Target area radius", style = MaterialTheme.typography.bodyMedium)
+                                        Text(
+                                            "${radius}m",
+                                            style = MaterialTheme.typography.bodyMedium,
+                                            fontWeight = FontWeight.Bold,
+                                            color = MaterialTheme.colorScheme.primary
+                                        )
+                                    }
+                                    Slider(
+                                        value = radius.toFloat(),
+                                        onValueChange = { radius = it.toInt() },
+                                        valueRange = 50f..1000f,
+                                        steps = 18,
+                                        modifier = Modifier.fillMaxWidth()
+                                    )
+                                }
+                            }
+                        }
+
+                        // Single, dedicated "Done" button (Properly padded above system nav bar)
                         Button(
                             onClick = {
                                 onConfirm(
@@ -773,9 +824,9 @@ fun OsmLocationPickerDialog(
                             shape = RoundedCornerShape(20.dp),
                             modifier = Modifier
                                 .fillMaxWidth()
-                                .height(48.dp)
+                                .height(50.dp)
                         ) {
-                            Text("Done", fontWeight = FontWeight.Bold)
+                            Text("Done", fontWeight = FontWeight.Bold, fontSize = 16.sp)
                         }
                     }
                 }
