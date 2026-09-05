@@ -83,8 +83,9 @@ dependencies {
     // DataStore
     implementation(libs.androidx.datastore.preferences)
 
-    // Location
+    // Location & Maps (OpenStreetMap)
     implementation(libs.play.services.location)
+    implementation("org.osmdroid:osmdroid-android:6.1.20")
 
     debugImplementation(libs.androidx.ui.tooling)
 }

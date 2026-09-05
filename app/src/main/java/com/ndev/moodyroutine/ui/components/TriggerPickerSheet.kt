@@ -50,7 +50,7 @@ fun TriggerPickerSheet(
         }
         TriggerType.LOCATION_ARRIVE,
         TriggerType.LOCATION_LEAVE -> {
-            LocationConfigDialog(
+            OsmLocationPickerDialog(
                 initialIsArrive = configuringTriggerType == TriggerType.LOCATION_ARRIVE,
                 onDismiss = { configuringTriggerType = null },
                 onConfirm = { isArrive, name, address, lat, lng, radius ->
