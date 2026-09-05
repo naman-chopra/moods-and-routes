@@ -162,8 +162,11 @@ fun TriggerPickerSheet(
         filteredTypes.groupBy { it.category }
     }
 
+    val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
+
     ModalBottomSheet(
         onDismissRequest = onDismiss,
+        sheetState = sheetState,
         containerColor = MaterialTheme.colorScheme.surface,
         tonalElevation = 6.dp,
         shape = RoundedCornerShape(topStart = 28.dp, topEnd = 28.dp)
@@ -171,7 +174,7 @@ fun TriggerPickerSheet(
         Column(
             modifier = Modifier
                 .fillMaxWidth()
-                .fillMaxHeight(0.85f)
+                .fillMaxHeight(0.88f)
                 .padding(horizontal = 20.dp)
         ) {
             Text(
@@ -198,7 +201,10 @@ fun TriggerPickerSheet(
                 modifier = Modifier.weight(1f)
             ) {
                 grouped.forEach { (category, types) ->
-                    item(key = "category_${category.name}") {
+                    item(
+                        key = "category_${category.name}",
+                        contentType = "category_header"
+                    ) {
                         Text(
                             text = when (category) {
                                 TriggerCategory.TIME -> "Time"
@@ -215,82 +221,95 @@ fun TriggerPickerSheet(
                         )
                     }
 
-                    items(types, key = { it.name }) { type ->
-                        val icon = UiIcons.getTriggerIcon(type)
-                        val color = UiIcons.getTriggerColor(type.category)
-
-                        Surface(
-                            shape = RoundedCornerShape(16.dp),
-                            color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f),
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .clip(RoundedCornerShape(16.dp))
-                                .clickable {
-                                    when (type) {
-                                        TriggerType.TIME_OF_DAY,
-                                        TriggerType.LOCATION_ARRIVE,
-                                        TriggerType.LOCATION_LEAVE,
-                                        TriggerType.BATTERY_LEVEL,
-                                        TriggerType.WIFI_SPECIFIC_NETWORK,
-                                        TriggerType.BLUETOOTH_SPECIFIC_DEVICE,
-                                        TriggerType.APP_OPENED,
-                                        TriggerType.APP_CLOSED -> {
-                                            configuringTriggerType = type
-                                        }
-                                        else -> {
-                                            onTriggerSelected(TriggerConfig(type = type, params = emptyMap()))
-                                        }
+                    items(
+                        items = types,
+                        key = { it.name },
+                        contentType = { "trigger_item" }
+                    ) { type ->
+                        TriggerPickerItem(
+                            type = type,
+                            onClick = {
+                                when (type) {
+                                    TriggerType.TIME_OF_DAY,
+                                    TriggerType.LOCATION_ARRIVE,
+                                    TriggerType.LOCATION_LEAVE,
+                                    TriggerType.BATTERY_LEVEL,
+                                    TriggerType.WIFI_SPECIFIC_NETWORK,
+                                    TriggerType.BLUETOOTH_SPECIFIC_DEVICE,
+                                    TriggerType.APP_OPENED,
+                                    TriggerType.APP_CLOSED -> {
+                                        configuringTriggerType = type
+                                    }
+                                    else -> {
+                                        onTriggerSelected(TriggerConfig(type = type, params = emptyMap()))
                                     }
                                 }
-                        ) {
-                            Row(
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .padding(horizontal = 16.dp, vertical = 14.dp),
-                                verticalAlignment = Alignment.CenterVertically
-                            ) {
-                                Box(
-                                    modifier = Modifier
-                                        .size(44.dp)
-                                        .clip(RoundedCornerShape(12.dp))
-                                        .background(color.copy(alpha = 0.15f)),
-                                    contentAlignment = Alignment.Center
-                                ) {
-                                    Icon(
-                                        imageVector = icon,
-                                        contentDescription = null,
-                                        tint = color,
-                                        modifier = Modifier.size(24.dp)
-                                    )
-                                }
-
-                                Spacer(modifier = Modifier.width(16.dp))
-
-                                Column(modifier = Modifier.weight(1f)) {
-                                    Text(
-                                        text = type.displayName,
-                                        style = MaterialTheme.typography.bodyLarge,
-                                        fontWeight = FontWeight.Medium
-                                    )
-                                    Text(
-                                        text = type.description,
-                                        style = MaterialTheme.typography.bodySmall,
-                                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                                    )
-                                }
-
-                                Icon(
-                                    imageVector = Icons.AutoMirrored.Rounded.KeyboardArrowRight,
-                                    contentDescription = null,
-                                    tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f)
-                                )
                             }
-                        }
+                        )
                     }
                 }
             }
 
             Spacer(modifier = Modifier.height(16.dp))
+        }
+    }
+}
+
+@Composable
+private fun TriggerPickerItem(
+    type: TriggerType,
+    onClick: () -> Unit
+) {
+    val icon = remember(type) { UiIcons.getTriggerIcon(type) }
+    val color = remember(type.category) { UiIcons.getTriggerColor(type.category) }
+
+    Surface(
+        shape = RoundedCornerShape(16.dp),
+        color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f),
+        onClick = onClick,
+        modifier = Modifier.fillMaxWidth()
+    ) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 16.dp, vertical = 14.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Box(
+                modifier = Modifier
+                    .size(44.dp)
+                    .clip(RoundedCornerShape(12.dp))
+                    .background(color.copy(alpha = 0.15f)),
+                contentAlignment = Alignment.Center
+            ) {
+                Icon(
+                    imageVector = icon,
+                    contentDescription = null,
+                    tint = color,
+                    modifier = Modifier.size(24.dp)
+                )
+            }
+
+            Spacer(modifier = Modifier.width(16.dp))
+
+            Column(modifier = Modifier.weight(1f)) {
+                Text(
+                    text = type.displayName,
+                    style = MaterialTheme.typography.bodyLarge,
+                    fontWeight = FontWeight.Medium
+                )
+                Text(
+                    text = type.description,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
+
+            Icon(
+                imageVector = Icons.AutoMirrored.Rounded.KeyboardArrowRight,
+                contentDescription = null,
+                tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f)
+            )
         }
     }
 }
