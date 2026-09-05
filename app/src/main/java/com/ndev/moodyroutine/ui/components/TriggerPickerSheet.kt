@@ -48,30 +48,25 @@ fun TriggerPickerSheet(
                 }
             )
         }
-        TriggerType.LOCATION_ARRIVE -> {
-            LocationConfigDialog(
-                isArrive = true,
-                onDismiss = { configuringTriggerType = null },
-                onConfirm = { name, radius ->
-                    onTriggerSelected(
-                        TriggerConfig(
-                            type = TriggerType.LOCATION_ARRIVE,
-                            params = mapOf("locationName" to name, "radius" to radius.toString())
-                        )
-                    )
-                    configuringTriggerType = null
-                }
-            )
-        }
+        TriggerType.LOCATION_ARRIVE,
         TriggerType.LOCATION_LEAVE -> {
             LocationConfigDialog(
-                isArrive = false,
+                initialIsArrive = configuringTriggerType == TriggerType.LOCATION_ARRIVE,
                 onDismiss = { configuringTriggerType = null },
-                onConfirm = { name, radius ->
+                onConfirm = { isArrive, name, address, lat, lng, radius ->
+                    val type = if (isArrive) TriggerType.LOCATION_ARRIVE else TriggerType.LOCATION_LEAVE
                     onTriggerSelected(
                         TriggerConfig(
-                            type = TriggerType.LOCATION_LEAVE,
-                            params = mapOf("locationName" to name, "radius" to radius.toString())
+                            type = type,
+                            params = buildMap {
+                                put("locationName", name)
+                                if (address.isNotBlank()) put("address", address)
+                                if (lat != 0.0 || lng != 0.0) {
+                                    put("latitude", lat.toString())
+                                    put("longitude", lng.toString())
+                                }
+                                put("radius", radius.toString())
+                            }
                         )
                     )
                     configuringTriggerType = null

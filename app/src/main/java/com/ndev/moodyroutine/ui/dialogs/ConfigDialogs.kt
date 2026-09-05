@@ -1,17 +1,25 @@
 package com.ndev.moodyroutine.ui.dialogs
 
+import android.Manifest
 import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
 import android.content.pm.ResolveInfo
+import android.location.Address
+import android.location.Geocoder
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.*
 import androidx.compose.material3.*
@@ -19,14 +27,19 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.Dialog
 import androidx.core.graphics.drawable.toBitmap
+import com.google.android.gms.location.LocationServices
+import com.google.android.gms.location.Priority
 import com.ndev.moodyroutine.ui.theme.SamsungBlue
+import java.util.Locale
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
 @Composable
@@ -234,55 +247,298 @@ fun BatteryConfigDialog(
 
 @Composable
 fun LocationConfigDialog(
-    isArrive: Boolean = true,
+    initialIsArrive: Boolean = true,
     initialLocationName: String = "Home",
     initialRadius: Int = 150,
     onDismiss: () -> Unit,
-    onConfirm: (locationName: String, radius: Int) -> Unit
+    onConfirm: (isArrive: Boolean, locationName: String, address: String, latitude: Double, longitude: Double, radius: Int) -> Unit
 ) {
+    val context = LocalContext.current
+    val coroutineScope = rememberCoroutineScope()
+
+    var isArrive by remember { mutableStateOf(initialIsArrive) }
     var locationName by remember { mutableStateOf(initialLocationName) }
+    var addressText by remember { mutableStateOf("") }
+    var latitude by remember { mutableDoubleStateOf(0.0) }
+    var longitude by remember { mutableDoubleStateOf(0.0) }
+    var hasCoordinates by remember { mutableStateOf(false) }
     var radius by remember { mutableIntStateOf(initialRadius) }
+
+    var searchQuery by remember { mutableStateOf("") }
+    var isSearching by remember { mutableStateOf(false) }
+    var searchResults by remember { mutableStateOf<List<Address>>(emptyList()) }
+    var isLocating by remember { mutableStateOf(false) }
+    var statusMessage by remember { mutableStateOf<String?>(null) }
+
+    val fusedLocationClient = remember { LocationServices.getFusedLocationProviderClient(context) }
+
+    val locationPermissionLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.RequestMultiplePermissions()
+    ) { perms ->
+        val granted = perms[Manifest.permission.ACCESS_FINE_LOCATION] == true ||
+                perms[Manifest.permission.ACCESS_COARSE_LOCATION] == true
+        if (granted) {
+            isLocating = true
+            statusMessage = "Locating your position..."
+            try {
+                fusedLocationClient.getCurrentLocation(Priority.PRIORITY_BALANCED_POWER_ACCURACY, null)
+                    .addOnSuccessListener { loc ->
+                        isLocating = false
+                        if (loc != null) {
+                            latitude = loc.latitude
+                            longitude = loc.longitude
+                            hasCoordinates = true
+                            coroutineScope.launch(Dispatchers.IO) {
+                                try {
+                                    val geocoder = Geocoder(context, Locale.getDefault())
+                                    val addresses = geocoder.getFromLocation(loc.latitude, loc.longitude, 1)
+                                    if (!addresses.isNullOrEmpty()) {
+                                        val addr = addresses[0]
+                                        val fullAddr = addr.getAddressLine(0) ?: ""
+                                        val featureName = addr.featureName ?: addr.subLocality ?: addr.locality ?: "My Location"
+                                        withContext(Dispatchers.Main) {
+                                            addressText = fullAddr
+                                            if (locationName.isBlank() || locationName == "Home") {
+                                                locationName = featureName
+                                            }
+                                            statusMessage = "Location updated"
+                                        }
+                                    }
+                                } catch (e: Exception) {
+                                    withContext(Dispatchers.Main) {
+                                        statusMessage = "Location found: ${String.format("%.4f, %.4f", loc.latitude, loc.longitude)}"
+                                    }
+                                }
+                            }
+                        } else {
+                            statusMessage = "Unable to fetch GPS. Ensure location is on."
+                        }
+                    }
+                    .addOnFailureListener {
+                        isLocating = false
+                        statusMessage = "Location request failed"
+                    }
+            } catch (e: SecurityException) {
+                isLocating = false
+                statusMessage = "Location permission denied"
+            }
+        } else {
+            statusMessage = "Location permission is required"
+        }
+    }
+
+    fun requestCurrentLocation() {
+        locationPermissionLauncher.launch(
+            arrayOf(
+                Manifest.permission.ACCESS_FINE_LOCATION,
+                Manifest.permission.ACCESS_COARSE_LOCATION
+            )
+        )
+    }
+
+    fun searchAddress(query: String) {
+        if (query.isBlank()) return
+        isSearching = true
+        statusMessage = "Searching..."
+        coroutineScope.launch(Dispatchers.IO) {
+            try {
+                val geocoder = Geocoder(context, Locale.getDefault())
+                val results = geocoder.getFromLocationName(query, 4) ?: emptyList()
+                withContext(Dispatchers.Main) {
+                    searchResults = results
+                    isSearching = false
+                    statusMessage = if (results.isEmpty()) "No matching address found" else null
+                }
+            } catch (e: Exception) {
+                withContext(Dispatchers.Main) {
+                    isSearching = false
+                    statusMessage = "Search error: ${e.message}"
+                }
+            }
+        }
+    }
 
     AlertDialog(
         onDismissRequest = onDismiss,
         title = {
-            Text(
-                if (isArrive) "Arrive at Place" else "Leave Place",
-                fontWeight = FontWeight.Bold
-            )
+            Text("Place", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
         },
         text = {
             Column(
-                modifier = Modifier.fillMaxWidth(),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .verticalScroll(rememberScrollState()),
                 verticalArrangement = Arrangement.spacedBy(14.dp)
             ) {
-                Text(
-                    text = if (isArrive) "Trigger this routine when you arrive at this place."
-                    else "Trigger this routine when you leave this place.",
-                    style = MaterialTheme.typography.bodyMedium
-                )
+                // When I arrive vs When I leave (Samsung One UI)
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    FilterChip(
+                        selected = isArrive,
+                        onClick = { isArrive = true },
+                        label = { Text("When I arrive") },
+                        leadingIcon = if (isArrive) { { Icon(Icons.Rounded.Check, contentDescription = null, modifier = Modifier.size(16.dp)) } } else null,
+                        modifier = Modifier.weight(1f)
+                    )
+                    FilterChip(
+                        selected = !isArrive,
+                        onClick = { isArrive = false },
+                        label = { Text("When I leave") },
+                        leadingIcon = if (!isArrive) { { Icon(Icons.Rounded.Check, contentDescription = null, modifier = Modifier.size(16.dp)) } } else null,
+                        modifier = Modifier.weight(1f)
+                    )
+                }
 
+                // Place Name input
                 OutlinedTextField(
                     value = locationName,
                     onValueChange = { locationName = it },
-                    label = { Text("Place Name") },
-                    placeholder = { Text("e.g. Home, Work, Gym, School") },
+                    label = { Text("Place name") },
+                    placeholder = { Text("e.g. Home, Office, Gym") },
                     singleLine = true,
                     shape = RoundedCornerShape(14.dp),
                     modifier = Modifier.fillMaxWidth()
                 )
 
-                // Quick preset chips
-                Row(
+                // Quick preset chips (LazyRow to prevent any overflow/word wrapping!)
+                LazyRow(
                     modifier = Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
-                    listOf("Home", "Work", "Gym", "School").forEach { preset ->
+                    items(listOf("Home", "Work", "Gym", "School", "Office", "Cafe")) { preset ->
                         FilterChip(
                             selected = locationName.equals(preset, ignoreCase = true),
-                            onClick = { locationName = preset },
+                            onClick = {
+                                locationName = preset
+                                searchAddress(preset)
+                            },
                             label = { Text(preset) }
                         )
+                    }
+                }
+
+                // Location selector options (Current GPS or Address Search)
+                Button(
+                    onClick = { requestCurrentLocation() },
+                    colors = ButtonDefaults.buttonColors(
+                        containerColor = MaterialTheme.colorScheme.primaryContainer,
+                        contentColor = MaterialTheme.colorScheme.onPrimaryContainer
+                    ),
+                    shape = RoundedCornerShape(14.dp),
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    if (isLocating) {
+                        CircularProgressIndicator(modifier = Modifier.size(18.dp), strokeWidth = 2.dp)
+                        Spacer(Modifier.width(8.dp))
+                        Text("Locating...")
+                    } else {
+                        Icon(Icons.Rounded.MyLocation, contentDescription = null, modifier = Modifier.size(18.dp))
+                        Spacer(Modifier.width(8.dp))
+                        Text("Use current location", fontWeight = FontWeight.SemiBold)
+                    }
+                }
+
+                // Address search field
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    OutlinedTextField(
+                        value = searchQuery,
+                        onValueChange = { searchQuery = it },
+                        placeholder = { Text("Or search address/city...") },
+                        singleLine = true,
+                        shape = RoundedCornerShape(14.dp),
+                        modifier = Modifier.weight(1f)
+                    )
+                    Spacer(Modifier.width(8.dp))
+                    IconButton(
+                        onClick = { searchAddress(searchQuery) },
+                        enabled = searchQuery.isNotBlank()
+                    ) {
+                        if (isSearching) {
+                            CircularProgressIndicator(modifier = Modifier.size(20.dp), strokeWidth = 2.dp)
+                        } else {
+                            Icon(Icons.Rounded.Search, contentDescription = "Search", tint = MaterialTheme.colorScheme.primary)
+                        }
+                    }
+                }
+
+                // Search Results list
+                if (searchResults.isNotEmpty()) {
+                    Surface(
+                        shape = RoundedCornerShape(14.dp),
+                        color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f),
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Column(modifier = Modifier.padding(8.dp)) {
+                            searchResults.forEach { addr ->
+                                val line = addr.getAddressLine(0) ?: "${addr.latitude}, ${addr.longitude}"
+                                Row(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .clip(RoundedCornerShape(8.dp))
+                                        .clickable {
+                                            latitude = addr.latitude
+                                            longitude = addr.longitude
+                                            hasCoordinates = true
+                                            addressText = line
+                                            val name = addr.featureName ?: addr.locality ?: locationName
+                                            if (locationName.isBlank() || locationName == "Home") {
+                                                locationName = name
+                                            }
+                                            searchResults = emptyList()
+                                            searchQuery = ""
+                                        }
+                                        .padding(8.dp),
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Icon(Icons.Rounded.Place, contentDescription = null, tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(18.dp))
+                                    Spacer(Modifier.width(8.dp))
+                                    Text(line, style = MaterialTheme.typography.bodySmall, maxLines = 2)
+                                }
+                            }
+                        }
+                    }
+                }
+
+                // Status message
+                if (statusMessage != null) {
+                    Text(
+                        text = statusMessage!!,
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.primary
+                    )
+                }
+
+                // Selected Coordinates Card
+                if (hasCoordinates) {
+                    Surface(
+                        shape = RoundedCornerShape(14.dp),
+                        color = MaterialTheme.colorScheme.primary.copy(alpha = 0.1f),
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Row(
+                            modifier = Modifier.padding(12.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Icon(Icons.Rounded.CheckCircle, contentDescription = null, tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(22.dp))
+                            Spacer(Modifier.width(10.dp))
+                            Column(Modifier.weight(1f)) {
+                                Text(
+                                    if (addressText.isNotBlank()) addressText else "$locationName pinned",
+                                    style = MaterialTheme.typography.bodyMedium,
+                                    fontWeight = FontWeight.SemiBold
+                                )
+                                Text(
+                                    "${String.format("%.4f", latitude)}°, ${String.format("%.4f", longitude)}°",
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                            }
+                        }
                     }
                 }
 
@@ -292,7 +548,7 @@ fun LocationConfigDialog(
                         modifier = Modifier.fillMaxWidth(),
                         horizontalArrangement = Arrangement.SpaceBetween
                     ) {
-                        Text("Target Area Radius", style = MaterialTheme.typography.bodyMedium)
+                        Text("Target area radius", style = MaterialTheme.typography.bodyMedium)
                         Text("${radius}m", style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.primary)
                     }
                     Slider(
@@ -307,10 +563,19 @@ fun LocationConfigDialog(
         },
         confirmButton = {
             Button(
-                onClick = { onConfirm(locationName.trim().ifBlank { if (isArrive) "Home" else "Work" }, radius) },
+                onClick = {
+                    onConfirm(
+                        isArrive,
+                        locationName.trim().ifBlank { if (isArrive) "Home" else "Work" },
+                        addressText,
+                        latitude,
+                        longitude,
+                        radius
+                    )
+                },
                 enabled = locationName.isNotBlank()
             ) {
-                Text("Done")
+                Text("Done", fontWeight = FontWeight.Bold)
             }
         },
         dismissButton = {

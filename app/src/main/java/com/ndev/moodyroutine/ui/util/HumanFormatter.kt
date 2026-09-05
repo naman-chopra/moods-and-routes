@@ -8,7 +8,10 @@ import com.ndev.moodyroutine.data.model.TriggerType
 object HumanFormatter {
 
     fun formatTrigger(trigger: TriggerConfig): Pair<String, String> {
-        val title = trigger.type.displayName
+        val title = when (trigger.type) {
+            TriggerType.LOCATION_ARRIVE, TriggerType.LOCATION_LEAVE -> "Place"
+            else -> trigger.type.displayName
+        }
         val subtitle = when (trigger.type) {
             TriggerType.TIME_OF_DAY -> {
                 val time = trigger.params["time"] ?: "08:00"
@@ -25,12 +28,12 @@ object HumanFormatter {
                 days
             }
             TriggerType.LOCATION_ARRIVE -> {
-                val loc = trigger.params["locationName"] ?: "Selected place"
-                "Arriving at \"$loc\""
+                val loc = trigger.params["locationName"] ?: trigger.params["address"] ?: "Selected place"
+                "When I arrive at $loc"
             }
             TriggerType.LOCATION_LEAVE -> {
-                val loc = trigger.params["locationName"] ?: "Selected place"
-                "Leaving \"$loc\""
+                val loc = trigger.params["locationName"] ?: trigger.params["address"] ?: "Selected place"
+                "When I leave $loc"
             }
             TriggerType.BATTERY_LEVEL -> {
                 val level = trigger.params["level"] ?: "20"

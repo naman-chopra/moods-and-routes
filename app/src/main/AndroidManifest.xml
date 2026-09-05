@@ -86,6 +86,11 @@
             android:name=".service.AlarmReceiver"
             android:exported="false" />
 
+        <!-- Geofence Receiver for location triggers -->
+        <receiver
+            android:name=".service.GeofenceReceiver"
+            android:exported="true" />
+
     </application>
 
 </manifest>

@@ -77,6 +77,13 @@ class AutomationService : Service() {
             actionExecutor = ActionExecutor(this)
         )
         engine?.start()
+
+        val geofenceManager = GeofenceManager(this)
+        scope.launch {
+            routineRepo.getEnabledRoutines().collect { routines ->
+                geofenceManager.updateGeofences(routines)
+            }
+        }
         
         registerReceivers()
     }
