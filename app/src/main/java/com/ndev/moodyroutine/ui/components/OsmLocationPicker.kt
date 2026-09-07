@@ -659,97 +659,103 @@ fun OsmLocationPickerDialog(
                     color = MaterialTheme.colorScheme.surface,
                     tonalElevation = 8.dp,
                     shadowElevation = 10.dp,
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .pointerInput(Unit) {
-                            detectVerticalDragGestures(
-                                onDragEnd = {
-                                    if (accumulatedDrag > 35f) {
-                                        isDrawerExpanded = false
-                                    } else if (accumulatedDrag < -35f) {
-                                        isDrawerExpanded = true
-                                    }
-                                    accumulatedDrag = 0f
-                                },
-                                onVerticalDrag = { change, dragAmount ->
-                                    change.consume()
-                                    accumulatedDrag += dragAmount
-                                }
-                            )
-                        }
+                    modifier = Modifier.fillMaxWidth()
                 ) {
                     Column(
                         modifier = Modifier
                             .fillMaxWidth()
                             .navigationBarsPadding()
                             .padding(horizontal = 20.dp)
-                            .padding(bottom = 16.dp),
+                            .padding(bottom = 20.dp)
+                            .verticalScroll(rememberScrollState()),
                         verticalArrangement = Arrangement.spacedBy(10.dp)
                     ) {
-                        // Drag Handle (Swipe up/down or tap to toggle)
-                        Box(
+                        // Header Container: Drag handle + place details (Swipe or tap to expand/collapse)
+                        Column(
                             modifier = Modifier
                                 .fillMaxWidth()
-                                .clickable { isDrawerExpanded = !isDrawerExpanded }
-                                .padding(top = 10.dp, bottom = 4.dp),
-                            contentAlignment = Alignment.Center
-                        ) {
-                            Box(
-                                modifier = Modifier
-                                    .width(42.dp)
-                                    .height(4.dp)
-                                    .background(
-                                        MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.35f),
-                                        RoundedCornerShape(2.dp)
+                                .pointerInput(Unit) {
+                                    detectVerticalDragGestures(
+                                        onDragEnd = {
+                                            if (accumulatedDrag > 30f) {
+                                                isDrawerExpanded = false
+                                            } else if (accumulatedDrag < -30f) {
+                                                isDrawerExpanded = true
+                                            }
+                                            accumulatedDrag = 0f
+                                        },
+                                        onVerticalDrag = { change, dragAmount ->
+                                            change.consume()
+                                            accumulatedDrag += dragAmount
+                                        }
                                     )
-                            )
-                        }
-
-                        // Place name & Address details row (Always visible)
-                        Row(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .clickable { isDrawerExpanded = !isDrawerExpanded },
-                            verticalAlignment = Alignment.CenterVertically
+                                }
+                                .clickable { isDrawerExpanded = !isDrawerExpanded }
                         ) {
+                            // Drag Handle
                             Box(
                                 modifier = Modifier
-                                    .size(44.dp)
-                                    .clip(RoundedCornerShape(14.dp))
-                                    .background(
-                                        if (isArrive) MaterialTheme.colorScheme.primary.copy(alpha = 0.15f)
-                                        else Color(0xFFE11D48).copy(alpha = 0.15f)
-                                    ),
+                                    .fillMaxWidth()
+                                    .padding(top = 10.dp, bottom = 8.dp),
                                 contentAlignment = Alignment.Center
                             ) {
-                                Icon(
-                                    if (isArrive) Icons.Rounded.LocationOn else Icons.Rounded.LocationOff,
-                                    contentDescription = null,
-                                    tint = if (isArrive) MaterialTheme.colorScheme.primary else Color(0xFFE11D48),
-                                    modifier = Modifier.size(24.dp)
+                                Box(
+                                    modifier = Modifier
+                                        .width(42.dp)
+                                        .height(4.dp)
+                                        .background(
+                                            MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.35f),
+                                            RoundedCornerShape(2.dp)
+                                        )
                                 )
                             }
-                            Spacer(Modifier.width(12.dp))
-                            Column(modifier = Modifier.weight(1f)) {
-                                Text(
-                                    text = locationName.ifBlank { "Selected Location" },
-                                    style = MaterialTheme.typography.titleMedium,
-                                    fontWeight = FontWeight.Bold
-                                )
-                                Text(
-                                    text = if (addressText.isNotBlank()) addressText else "${String.format(Locale.US, "%.4f", currentGeoPoint.latitude)}°, ${String.format(Locale.US, "%.4f", currentGeoPoint.longitude)}°",
-                                    style = MaterialTheme.typography.bodySmall,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                    maxLines = 1
-                                )
-                            }
-                            // Small indicator showing if expanded or collapsed
-                            IconButton(onClick = { isDrawerExpanded = !isDrawerExpanded }) {
-                                Icon(
-                                    if (isDrawerExpanded) Icons.Rounded.KeyboardArrowDown else Icons.Rounded.KeyboardArrowUp,
-                                    contentDescription = "Toggle drawer",
-                                    tint = MaterialTheme.colorScheme.onSurfaceVariant
-                                )
+
+                            // Place name & Address details row (Always visible)
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(bottom = 4.dp),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Box(
+                                    modifier = Modifier
+                                        .size(44.dp)
+                                        .clip(RoundedCornerShape(14.dp))
+                                        .background(
+                                            if (isArrive) MaterialTheme.colorScheme.primary.copy(alpha = 0.15f)
+                                            else Color(0xFFE11D48).copy(alpha = 0.15f)
+                                        ),
+                                    contentAlignment = Alignment.Center
+                                ) {
+                                    Icon(
+                                        if (isArrive) Icons.Rounded.LocationOn else Icons.Rounded.LocationOff,
+                                        contentDescription = null,
+                                        tint = if (isArrive) MaterialTheme.colorScheme.primary else Color(0xFFE11D48),
+                                        modifier = Modifier.size(24.dp)
+                                    )
+                                }
+                                Spacer(Modifier.width(12.dp))
+                                Column(modifier = Modifier.weight(1f)) {
+                                    Text(
+                                        text = locationName.ifBlank { "Selected Location" },
+                                        style = MaterialTheme.typography.titleMedium,
+                                        fontWeight = FontWeight.Bold
+                                    )
+                                    Text(
+                                        text = if (addressText.isNotBlank()) addressText else "${String.format(Locale.US, "%.4f", currentGeoPoint.latitude)}°, ${String.format(Locale.US, "%.4f", currentGeoPoint.longitude)}°",
+                                        style = MaterialTheme.typography.bodySmall,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                        maxLines = 1
+                                    )
+                                }
+                                // Small indicator showing if expanded or collapsed
+                                IconButton(onClick = { isDrawerExpanded = !isDrawerExpanded }) {
+                                    Icon(
+                                        if (isDrawerExpanded) Icons.Rounded.KeyboardArrowDown else Icons.Rounded.KeyboardArrowUp,
+                                        contentDescription = "Toggle drawer",
+                                        tint = MaterialTheme.colorScheme.onSurfaceVariant
+                                    )
+                                }
                             }
                         }
 
