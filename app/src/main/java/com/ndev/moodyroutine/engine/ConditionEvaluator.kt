@@ -28,16 +28,45 @@ class ConditionEvaluator {
                     true
                 } else false
             }
+            TriggerType.TIME_RANGE -> {
+                if (event is AutomationEvent.TimeEvent) {
+                    val startTime = trigger.params["startTime"] ?: return false
+                    val endTime = trigger.params["endTime"] ?: return false
+                    val currentMins = event.hour * 60 + event.minute
+                    val startMins = parseMinutes(startTime) ?: return false
+                    val endMins = parseMinutes(endTime) ?: return false
+                    if (startMins <= endMins) {
+                        currentMins in startMins..endMins
+                    } else {
+                        currentMins >= startMins || currentMins <= endMins
+                    }
+                } else false
+            }
+            TriggerType.DAY_OF_WEEK -> {
+                if (event is AutomationEvent.TimeEvent) {
+                    val daysStr = trigger.params["days"] ?: return false
+                    val days = daysStr.split(",").mapNotNull { it.trim().toIntOrNull() }
+                    days.contains(event.dayOfWeek)
+                } else false
+            }
             TriggerType.LOCATION_ARRIVE -> {
                 if (event is AutomationEvent.LocationEvent) {
                     val locationName = trigger.params["locationName"] ?: ""
-                    event.isEntering && (locationName.isBlank() || event.locationName.contains(locationName, ignoreCase = true))
+                    event.isEntering && (
+                        locationName.isBlank() ||
+                        event.locationName.contains(locationName, ignoreCase = true) ||
+                        locationName.contains(event.locationName, ignoreCase = true)
+                    )
                 } else false
             }
             TriggerType.LOCATION_LEAVE -> {
                 if (event is AutomationEvent.LocationEvent) {
                     val locationName = trigger.params["locationName"] ?: ""
-                    !event.isEntering && (locationName.isBlank() || event.locationName.contains(locationName, ignoreCase = true))
+                    !event.isEntering && (
+                        locationName.isBlank() ||
+                        event.locationName.contains(locationName, ignoreCase = true) ||
+                        locationName.contains(event.locationName, ignoreCase = true)
+                    )
                 } else false
             }
             TriggerType.BATTERY_LEVEL -> {
@@ -74,7 +103,10 @@ class ConditionEvaluator {
             TriggerType.WIFI_SPECIFIC_NETWORK -> {
                 if (event is AutomationEvent.WifiEvent) {
                     val wifiName = trigger.params["wifiName"]
-                    event.isConnected && event.ssid?.replace("\"", "") == wifiName?.replace("\"", "")
+                    event.isConnected && (
+                        wifiName.isNullOrBlank() ||
+                        event.ssid?.replace("\"", "")?.equals(wifiName.replace("\"", ""), ignoreCase = true) == true
+                    )
                 } else false
             }
             TriggerType.BLUETOOTH_CONNECTED -> {
@@ -93,20 +125,20 @@ class ConditionEvaluator {
                     val deviceAddress = trigger.params["deviceAddress"]
                     event.isConnected && (
                         (deviceName != null && event.deviceName?.contains(deviceName, ignoreCase = true) == true) ||
-                        (deviceAddress != null && event.deviceAddress == deviceAddress)
+                        (deviceAddress != null && event.deviceAddress.equals(deviceAddress, ignoreCase = true))
                     )
                 } else false
             }
             TriggerType.APP_OPENED -> {
                 if (event is AutomationEvent.AppEvent) {
                     val packageName = trigger.params["packageName"]
-                    event.isOpened && event.packageName == packageName
+                    event.isOpened && (packageName.isNullOrBlank() || event.packageName == packageName)
                 } else false
             }
             TriggerType.APP_CLOSED -> {
                 if (event is AutomationEvent.AppEvent) {
                     val packageName = trigger.params["packageName"]
-                    !event.isOpened && event.packageName == packageName
+                    !event.isOpened && (packageName.isNullOrBlank() || event.packageName == packageName)
                 } else false
             }
             TriggerType.HEADPHONE_CONNECTED -> {
@@ -139,7 +171,14 @@ class ConditionEvaluator {
                     !event.isConnected
                 } else false
             }
-            else -> false
         }
+    }
+
+    private fun parseMinutes(timeStr: String): Int? {
+        val parts = timeStr.split(":")
+        if (parts.size != 2) return null
+        val h = parts[0].toIntOrNull() ?: return null
+        val m = parts[1].toIntOrNull() ?: return null
+        return h * 60 + m
     }
 }

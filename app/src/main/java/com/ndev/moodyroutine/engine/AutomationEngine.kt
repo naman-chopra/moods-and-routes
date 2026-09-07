@@ -1,16 +1,20 @@
 package com.ndev.moodyroutine.engine
 
+import android.content.Context
 import android.util.Log
 import com.ndev.moodyroutine.data.model.TriggerMatchType
+import com.ndev.moodyroutine.data.model.TriggerType
 import com.ndev.moodyroutine.data.repository.ModeRepository
 import com.ndev.moodyroutine.data.repository.RoutineRepository
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.launch
 
 class AutomationEngine(
+    private val context: Context,
     private val routineRepository: RoutineRepository,
     private val modeRepository: ModeRepository,
     private val conditionEvaluator: ConditionEvaluator,
@@ -25,9 +29,13 @@ class AutomationEngine(
         job = scope.launch {
             Log.i("MoodyRoutine", "AutomationEngine started")
             EventBus.events.collectLatest { event ->
-                Log.d("MoodyRoutine", "Received event: \$event")
-                processEventForRoutines(event)
-                processEventForModes(event)
+                Log.d("MoodyRoutine", "Received event: $event")
+                try {
+                    processEventForRoutines(event)
+                    processEventForModes(event)
+                } catch (e: Exception) {
+                    Log.e("MoodyRoutine", "Error processing event $event", e)
+                }
             }
         }
     }
@@ -39,51 +47,83 @@ class AutomationEngine(
     }
 
     private suspend fun processEventForRoutines(event: AutomationEvent) {
-        routineRepository.getEnabledRoutines().collect { routines ->
-            for (routine in routines) {
-                var shouldExecute = false
-                val satisfiedIndices = activeTriggers.getOrPut(routine.id) { mutableSetOf() }
+        val routines = try {
+            routineRepository.getEnabledRoutines().first()
+        } catch (e: Exception) {
+            emptyList()
+        }
 
-                for ((index, trigger) in routine.triggers.withIndex()) {
-                    if (conditionEvaluator.evaluate(event, trigger)) {
-                        satisfiedIndices.add(index)
-                    }
-                }
+        for (routine in routines) {
+            var shouldExecute = false
+            val satisfiedIndices = activeTriggers.getOrPut(routine.id) { mutableSetOf() }
 
-                if (routine.triggerMatchType == TriggerMatchType.ANY) {
-                    if (satisfiedIndices.isNotEmpty()) {
-                        shouldExecute = true
-                    }
-                } else if (routine.triggerMatchType == TriggerMatchType.ALL) {
-                    if (routine.triggers.isNotEmpty() && satisfiedIndices.size >= routine.triggers.size) {
-                        shouldExecute = true
-                    }
+            for ((index, trigger) in routine.triggers.withIndex()) {
+                if (conditionEvaluator.evaluate(event, trigger)) {
+                    satisfiedIndices.add(index)
                 }
+            }
 
-                if (shouldExecute) {
-                    Log.i("MoodyRoutine", "Executing routine: \${routine.name}")
-                    actionExecutor.executeAll(routine.actions)
-                    routineRepository.updateLastTriggered(routine.id, System.currentTimeMillis())
-                    satisfiedIndices.clear() // reset after execution
+            if (routine.triggerMatchType == TriggerMatchType.ANY) {
+                if (satisfiedIndices.isNotEmpty()) {
+                    shouldExecute = true
                 }
+            } else if (routine.triggerMatchType == TriggerMatchType.ALL) {
+                if (routine.triggers.isNotEmpty() && satisfiedIndices.size >= routine.triggers.size) {
+                    shouldExecute = true
+                }
+            }
+
+            if (shouldExecute) {
+                Log.i("MoodyRoutine", "Executing routine: ${routine.name}")
+                actionExecutor.executeAll(routine.actions)
+                routineRepository.updateLastTriggered(routine.id, System.currentTimeMillis())
+                satisfiedIndices.clear() // reset after execution
             }
         }
     }
 
     private suspend fun processEventForModes(event: AutomationEvent) {
-        modeRepository.getActiveModes().collect { modes ->
-            for (mode in modes) {
-                var match = false
-                for (trigger in mode.autoTriggers) {
-                    if (conditionEvaluator.evaluate(event, trigger)) {
-                        match = true
-                        break
+        val allModes = try {
+            modeRepository.getAllModes().first()
+        } catch (e: Exception) {
+            emptyList()
+        }
+
+        for (mode in allModes) {
+            var arriveMatch = false
+            var leaveMatch = false
+
+            for (trigger in mode.autoTriggers) {
+                if (conditionEvaluator.evaluate(event, trigger)) {
+                    if (trigger.type == TriggerType.LOCATION_LEAVE) {
+                        leaveMatch = true
+                    } else {
+                        arriveMatch = true
                     }
                 }
-                if (match) {
-                    Log.i("MoodyRoutine", "Executing mode: \${mode.name}")
-                    actionExecutor.executeAll(mode.actions)
+            }
+
+            // Also handle leaving a location for an arrive trigger
+            if (!leaveMatch && event is AutomationEvent.LocationEvent && !event.isEntering) {
+                for (trigger in mode.autoTriggers) {
+                    if (trigger.type == TriggerType.LOCATION_ARRIVE) {
+                        val locName = trigger.params["locationName"] ?: ""
+                        if (locName.isBlank() || event.locationName.contains(locName, ignoreCase = true) ||
+                            locName.contains(event.locationName, ignoreCase = true)) {
+                            leaveMatch = true
+                            break
+                        }
+                    }
                 }
+            }
+
+            if (arriveMatch && !mode.isActive) {
+                Log.i("MoodyRoutine", "Activating mode: ${mode.name} (autoTrigger matched)")
+                modeRepository.setModeActive(mode.id, true)
+                actionExecutor.executeAll(mode.actions)
+            } else if (leaveMatch && mode.isActive) {
+                Log.i("MoodyRoutine", "Deactivating mode: ${mode.name} (exit condition matched)")
+                modeRepository.setModeActive(mode.id, false)
             }
         }
     }

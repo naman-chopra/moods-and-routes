@@ -9,6 +9,7 @@ import android.util.Log
 import com.google.android.gms.location.Geofence
 import com.google.android.gms.location.GeofencingRequest
 import com.google.android.gms.location.LocationServices
+import com.ndev.moodyroutine.data.model.Mode
 import com.ndev.moodyroutine.data.model.Routine
 import com.ndev.moodyroutine.data.model.TriggerType
 
@@ -26,31 +27,47 @@ class GeofenceManager(private val context: Context) {
     }
 
     @SuppressLint("MissingPermission")
-    fun updateGeofences(routines: List<Routine>) {
+    fun updateGeofences(routines: List<Routine>, modes: List<Mode>) {
         val geofences = mutableListOf<Geofence>()
 
         for (routine in routines) {
             if (!routine.isEnabled) continue
-            for (trigger in routine.triggers) {
+            for ((index, trigger) in routine.triggers.withIndex()) {
                 if (trigger.type == TriggerType.LOCATION_ARRIVE || trigger.type == TriggerType.LOCATION_LEAVE) {
                     val lat = trigger.params["latitude"]?.toDoubleOrNull()
                     val lng = trigger.params["longitude"]?.toDoubleOrNull()
                     val radius = trigger.params["radius"]?.toFloatOrNull() ?: 150f
-                    val name = trigger.params["locationName"] ?: "Location_${routine.id}"
+                    val name = trigger.params["locationName"] ?: "Routine_${routine.id}"
 
                     if (lat != null && lng != null) {
-                        val transitionTypes = if (trigger.type == TriggerType.LOCATION_ARRIVE) {
-                            Geofence.GEOFENCE_TRANSITION_ENTER
-                        } else {
-                            Geofence.GEOFENCE_TRANSITION_EXIT
-                        }
-
                         geofences.add(
                             Geofence.Builder()
                                 .setRequestId(name)
                                 .setCircularRegion(lat, lng, radius)
                                 .setExpirationDuration(Geofence.NEVER_EXPIRE)
-                                .setTransitionTypes(transitionTypes)
+                                .setTransitionTypes(Geofence.GEOFENCE_TRANSITION_ENTER or Geofence.GEOFENCE_TRANSITION_EXIT)
+                                .build()
+                        )
+                    }
+                }
+            }
+        }
+
+        for (mode in modes) {
+            for ((index, trigger) in mode.autoTriggers.withIndex()) {
+                if (trigger.type == TriggerType.LOCATION_ARRIVE || trigger.type == TriggerType.LOCATION_LEAVE) {
+                    val lat = trigger.params["latitude"]?.toDoubleOrNull()
+                    val lng = trigger.params["longitude"]?.toDoubleOrNull()
+                    val radius = trigger.params["radius"]?.toFloatOrNull() ?: 150f
+                    val name = trigger.params["locationName"] ?: mode.name
+
+                    if (lat != null && lng != null) {
+                        geofences.add(
+                            Geofence.Builder()
+                                .setRequestId(name)
+                                .setCircularRegion(lat, lng, radius)
+                                .setExpirationDuration(Geofence.NEVER_EXPIRE)
+                                .setTransitionTypes(Geofence.GEOFENCE_TRANSITION_ENTER or Geofence.GEOFENCE_TRANSITION_EXIT)
                                 .build()
                         )
                     }
@@ -67,15 +84,19 @@ class GeofenceManager(private val context: Context) {
             try {
                 client.addGeofences(request, geofencePendingIntent).run {
                     addOnSuccessListener {
-                        Log.i("MoodyRoutine", "Successfully registered ${geofences.size} geofences")
+                        Log.i("MoodyRoutine", "Successfully registered ${geofences.size} Play Services geofences")
                     }
                     addOnFailureListener { e ->
-                        Log.e("MoodyRoutine", "Failed to add geofences", e)
+                        Log.w("MoodyRoutine", "Failed to add Play Services geofences (LocationTracker active as fallback): ${e.message}")
                     }
                 }
             } catch (e: SecurityException) {
-                Log.e("MoodyRoutine", "Missing location permission for geofences", e)
+                Log.w("MoodyRoutine", "Missing background location for Play Services geofences (LocationTracker active as fallback): ${e.message}")
             }
+        } else {
+            try {
+                client.removeGeofences(geofencePendingIntent)
+            } catch (_: Exception) {}
         }
     }
 }

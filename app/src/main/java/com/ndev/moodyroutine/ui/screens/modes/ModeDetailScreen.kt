@@ -177,11 +177,11 @@ fun ModeDetailScreen(
                 }
             }
 
-            // AUTO-TRIGGERS SECTION
+            // TRIGGER SECTION
             if (currentMode.autoTriggers.isNotEmpty()) {
                 item {
                     Text(
-                        text = "Turn on automatically",
+                        text = "Trigger",
                         style = MaterialTheme.typography.titleLarge,
                         fontWeight = FontWeight.Bold
                     )
@@ -221,10 +221,10 @@ fun ModeDetailScreen(
                 }
             }
 
-            // ACTIONS SECTION
+            // ACTION SECTION
             item {
                 Text(
-                    text = "Settings applied",
+                    text = "Action",
                     style = MaterialTheme.typography.titleLarge,
                     fontWeight = FontWeight.Bold
                 )
