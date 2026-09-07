@@ -33,6 +33,7 @@ abstract class MoodyRoutineDatabase : RoomDatabase() {
                     MoodyRoutineDatabase::class.java,
                     "moody_routine_database"
                 )
+                    .fallbackToDestructiveMigration()
                     .addCallback(object : RoomDatabase.Callback() {
                         override fun onCreate(db: SupportSQLiteDatabase) {
                             super.onCreate(db)

@@ -31,6 +31,7 @@ data class Mode(
     val description: String = "",
     val iconName: String = "Palette",
     val colorHex: String = "#6750A4",
+    val isEnabled: Boolean = true,
     val isActive: Boolean = false,
     val actions: List<ActionConfig>,
     val autoTriggers: List<TriggerConfig> = emptyList(),

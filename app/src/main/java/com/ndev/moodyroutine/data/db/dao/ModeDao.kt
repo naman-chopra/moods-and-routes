@@ -29,6 +29,9 @@ interface ModeDao {
     @Delete
     suspend fun delete(mode: ModeEntity)
 
+    @Query("UPDATE modes SET isEnabled = :enabled WHERE id = :id")
+    suspend fun setEnabled(id: Long, enabled: Boolean)
+
     @Query("UPDATE modes SET isActive = :active WHERE id = :id")
     suspend fun setActive(id: Long, active: Boolean)
 

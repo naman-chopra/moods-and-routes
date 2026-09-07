@@ -90,7 +90,7 @@ class AutomationEngine(
         }
 
         for (mode in allModes) {
-            if (mode.autoTriggers.isEmpty()) continue
+            if (!mode.isEnabled || mode.autoTriggers.isEmpty()) continue
 
             var triggerMatched = false
             var exitMatched = false

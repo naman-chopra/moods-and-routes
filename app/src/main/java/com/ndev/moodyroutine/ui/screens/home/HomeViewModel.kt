@@ -36,8 +36,13 @@ class HomeViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
-    fun toggleModeActive(modeId: Long, active: Boolean) {
-        viewModelScope.launch { modeRepository.setModeActive(modeId, active) }
+    fun toggleModeEnabled(modeId: Long, enabled: Boolean) {
+        viewModelScope.launch {
+            modeRepository.setModeEnabled(modeId, enabled)
+            if (!enabled) {
+                modeRepository.setModeActive(modeId, false)
+            }
+        }
     }
 
     fun toggleRoutineEnabled(routineId: Long, enabled: Boolean) {
@@ -52,9 +57,14 @@ class HomeViewModel(application: Application) : AndroidViewModel(application) {
         viewModelScope.launch { routineRepository.deleteRoutine(routine) }
     }
 
-    fun bulkToggleModesActive(modeIds: Set<Long>, active: Boolean) {
+    fun bulkToggleModesEnabled(modeIds: Set<Long>, enabled: Boolean) {
         viewModelScope.launch {
-            modeIds.forEach { modeRepository.setModeActive(it, active) }
+            modeIds.forEach {
+                modeRepository.setModeEnabled(it, enabled)
+                if (!enabled) {
+                    modeRepository.setModeActive(it, false)
+                }
+            }
         }
     }
 

@@ -36,6 +36,10 @@ class ModeRepository(private val modeDao: ModeDao) {
         modeDao.delete(ModeEntity.fromDomainModel(mode))
     }
 
+    suspend fun setModeEnabled(id: Long, enabled: Boolean) {
+        modeDao.setEnabled(id, enabled)
+    }
+
     suspend fun setModeActive(id: Long, active: Boolean) {
         modeDao.setActive(id, active)
     }

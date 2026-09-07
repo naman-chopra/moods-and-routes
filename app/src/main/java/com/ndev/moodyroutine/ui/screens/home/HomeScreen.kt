@@ -207,7 +207,7 @@ fun HomeScreen(
                         onModeLongClick = { mode ->
                             selectedModeIds = if (mode.id in selectedModeIds) selectedModeIds - mode.id else selectedModeIds + mode.id
                         },
-                        onModeToggle = { mode, active -> viewModel.toggleModeActive(mode.id, active) }
+                        onModeToggle = { mode, enabled -> viewModel.toggleModeEnabled(mode.id, enabled) }
                     )
                 } else {
                     RoutinesTabContent(
@@ -253,11 +253,11 @@ fun HomeScreen(
                         horizontalArrangement = Arrangement.SpaceEvenly,
                         verticalAlignment = Alignment.CenterVertically
                     ) {
-                        // Enable / Turn On Button
+                        // Enable Button
                         TextButton(
                             onClick = {
                                 if (selectedTabIndex == 0) {
-                                    viewModel.bulkToggleModesActive(selectedModeIds, true)
+                                    viewModel.bulkToggleModesEnabled(selectedModeIds, true)
                                     selectedModeIds = emptySet()
                                 } else {
                                     viewModel.bulkToggleRoutinesEnabled(selectedRoutineIds, true)
@@ -266,16 +266,16 @@ fun HomeScreen(
                             }
                         ) {
                             Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                                Icon(Icons.Rounded.PlayCircleOutline, contentDescription = "Turn on", tint = MaterialTheme.colorScheme.primary)
-                                Text(if (selectedTabIndex == 0) "Turn on" else "Enable", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.primary)
+                                Icon(Icons.Rounded.PlayCircleOutline, contentDescription = "Enable", tint = MaterialTheme.colorScheme.primary)
+                                Text("Enable", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.primary)
                             }
                         }
 
-                        // Disable / Turn Off Button
+                        // Disable Button
                         TextButton(
                             onClick = {
                                 if (selectedTabIndex == 0) {
-                                    viewModel.bulkToggleModesActive(selectedModeIds, false)
+                                    viewModel.bulkToggleModesEnabled(selectedModeIds, false)
                                     selectedModeIds = emptySet()
                                 } else {
                                     viewModel.bulkToggleRoutinesEnabled(selectedRoutineIds, false)
@@ -284,8 +284,8 @@ fun HomeScreen(
                             }
                         ) {
                             Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                                Icon(Icons.Rounded.PauseCircleOutline, contentDescription = "Turn off", tint = MaterialTheme.colorScheme.onSurfaceVariant)
-                                Text(if (selectedTabIndex == 0) "Turn off" else "Disable", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                Icon(Icons.Rounded.PauseCircleOutline, contentDescription = "Disable", tint = MaterialTheme.colorScheme.onSurfaceVariant)
+                                Text("Disable", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                             }
                         }
 
@@ -387,15 +387,34 @@ fun ModesTabContent(
                     Spacer(modifier = Modifier.width(16.dp))
 
                     Column(modifier = Modifier.weight(1f)) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Text(
+                                text = mode.name,
+                                style = MaterialTheme.typography.titleMedium,
+                                fontWeight = FontWeight.Bold
+                            )
+                            if (mode.isActive) {
+                                Spacer(modifier = Modifier.width(8.dp))
+                                Box(
+                                    modifier = Modifier
+                                        .size(10.dp)
+                                        .clip(CircleShape)
+                                        .background(Color(0xFF10B981))
+                                )
+                            }
+                        }
+
+                        val subtitleText = when {
+                            mode.isActive -> "Active"
+                            !mode.isEnabled -> "Disabled"
+                            mode.description.isNotBlank() -> mode.description
+                            else -> "Turned on automatically"
+                        }
+
                         Text(
-                            text = mode.name,
-                            style = MaterialTheme.typography.titleMedium,
-                            fontWeight = FontWeight.Bold
-                        )
-                        Text(
-                            text = if (mode.isActive) "Active" else mode.description.ifBlank { "Tap to set up" },
+                            text = subtitleText,
                             style = MaterialTheme.typography.bodySmall,
-                            color = if (mode.isActive) modeColor else MaterialTheme.colorScheme.onSurfaceVariant,
+                            color = if (mode.isActive) Color(0xFF10B981) else if (!mode.isEnabled) MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f) else MaterialTheme.colorScheme.onSurfaceVariant,
                             fontWeight = if (mode.isActive) FontWeight.SemiBold else FontWeight.Normal,
                             maxLines = 1
                         )
@@ -403,7 +422,7 @@ fun ModesTabContent(
 
                     if (!isSelectionActive) {
                         Switch(
-                            checked = mode.isActive,
+                            checked = mode.isEnabled,
                             onCheckedChange = { onModeToggle(mode, it) },
                             colors = SwitchDefaults.colors(
                                 checkedThumbColor = Color.White,
