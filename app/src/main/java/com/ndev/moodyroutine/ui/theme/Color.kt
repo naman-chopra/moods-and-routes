@@ -22,7 +22,7 @@ val SamsungBlueDark = Color(0xFF1D52D8)
 val AccentPurple = Color(0xFF7F56D9)
 val AccentGreen = Color(0xFF12B76A)
 val AccentOrange = Color(0xFFF79009)
-val AccentRed = Color(0xFFF04438)
+val AccentRed = Color(0xFFFF1744)
 val AccentTeal = Color(0xFF06AED4)
 val AccentPink = Color(0xFFEE46BC)
 val AccentIndigo = Color(0xFF4E5BA6)
@@ -33,7 +33,7 @@ val ModeColors = listOf(
     Color(0xFF7F56D9), // Purple
     Color(0xFF12B76A), // Green
     Color(0xFFF79009), // Orange
-    Color(0xFFF04438), // Red
+    Color(0xFFFF1744), // Intense Crimson Red
     Color(0xFF06AED4), // Cyan/Teal
     Color(0xFFEE46BC), // Pink
     Color(0xFF4E5BA6), // Indigo
