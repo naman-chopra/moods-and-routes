@@ -90,39 +90,70 @@ class AutomationEngine(
         }
 
         for (mode in allModes) {
-            var arriveMatch = false
-            var leaveMatch = false
+            if (mode.autoTriggers.isEmpty()) continue
+
+            var triggerMatched = false
+            var exitMatched = false
 
             for (trigger in mode.autoTriggers) {
-                if (conditionEvaluator.evaluate(event, trigger)) {
+                val matches = conditionEvaluator.evaluate(event, trigger)
+                if (matches) {
                     if (trigger.type == TriggerType.LOCATION_LEAVE) {
-                        leaveMatch = true
+                        exitMatched = true
                     } else {
-                        arriveMatch = true
+                        triggerMatched = true
                     }
-                }
-            }
-
-            // Also handle leaving a location for an arrive trigger
-            if (!leaveMatch && event is AutomationEvent.LocationEvent && !event.isEntering) {
-                for (trigger in mode.autoTriggers) {
-                    if (trigger.type == TriggerType.LOCATION_ARRIVE) {
-                        val locName = trigger.params["locationName"] ?: ""
-                        if (locName.isBlank() || event.locationName.contains(locName, ignoreCase = true) ||
-                            locName.contains(event.locationName, ignoreCase = true)) {
-                            leaveMatch = true
-                            break
+                } else {
+                    // Check inverse exit conditions
+                    when (trigger.type) {
+                        TriggerType.WIFI_CONNECTED -> {
+                            if (event is AutomationEvent.WifiEvent && !event.isConnected) exitMatched = true
                         }
+                        TriggerType.WIFI_DISCONNECTED -> {
+                            if (event is AutomationEvent.WifiEvent && event.isConnected) exitMatched = true
+                        }
+                        TriggerType.WIFI_SPECIFIC_NETWORK -> {
+                            if (event is AutomationEvent.WifiEvent && !event.isConnected) exitMatched = true
+                        }
+                        TriggerType.BLUETOOTH_CONNECTED -> {
+                            if (event is AutomationEvent.BluetoothEvent && !event.isConnected) exitMatched = true
+                        }
+                        TriggerType.BLUETOOTH_DISCONNECTED -> {
+                            if (event is AutomationEvent.BluetoothEvent && event.isConnected) exitMatched = true
+                        }
+                        TriggerType.POWER_CONNECTED -> {
+                            if (event is AutomationEvent.PowerEvent && !event.isConnected) exitMatched = true
+                        }
+                        TriggerType.POWER_DISCONNECTED -> {
+                            if (event is AutomationEvent.PowerEvent && event.isConnected) exitMatched = true
+                        }
+                        TriggerType.HEADPHONE_CONNECTED -> {
+                            if (event is AutomationEvent.HeadphoneEvent && !event.isConnected) exitMatched = true
+                        }
+                        TriggerType.HEADPHONE_DISCONNECTED -> {
+                            if (event is AutomationEvent.HeadphoneEvent && event.isConnected) exitMatched = true
+                        }
+                        TriggerType.LOCATION_ARRIVE -> {
+                            if (event is AutomationEvent.LocationEvent && !event.isEntering) {
+                                val locName = trigger.params["locationName"] ?: ""
+                                if (locName.isBlank() || event.locationName.contains(locName, ignoreCase = true) || locName.contains(event.locationName, ignoreCase = true)) {
+                                    exitMatched = true
+                                }
+                            }
+                        }
+                        else -> {}
                     }
                 }
             }
 
-            if (arriveMatch && !mode.isActive) {
-                Log.i("MoodyRoutine", "Activating mode: ${mode.name} (autoTrigger matched)")
-                modeRepository.setModeActive(mode.id, true)
+            if (triggerMatched) {
+                Log.i("MoodyRoutine", "Trigger matched for mode: ${mode.name}. Activating and executing actions.")
+                if (!mode.isActive) {
+                    modeRepository.setModeActive(mode.id, true)
+                }
                 actionExecutor.executeAll(mode.actions)
-            } else if (leaveMatch && mode.isActive) {
-                Log.i("MoodyRoutine", "Deactivating mode: ${mode.name} (exit condition matched)")
+            } else if (exitMatched && mode.isActive) {
+                Log.i("MoodyRoutine", "Exit condition matched for mode: ${mode.name}. Deactivating.")
                 modeRepository.setModeActive(mode.id, false)
             }
         }
