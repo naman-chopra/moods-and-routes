@@ -1,9 +1,13 @@
 package com.ndev.moodyroutine.ui.screens.home
 
+import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.animateColorAsState
+import androidx.compose.animation.slideInVertically
+import androidx.compose.animation.slideOutVertically
+import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
-import androidx.compose.foundation.clickable
+import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
@@ -37,20 +41,93 @@ fun HomeScreen(
     val modes by viewModel.modes.collectAsState()
     val routines by viewModel.routines.collectAsState()
 
+    var selectedModeIds by remember { mutableStateOf(setOf<Long>()) }
+    var selectedRoutineIds by remember { mutableStateOf(setOf<Long>()) }
+    var showDeleteConfirm by remember { mutableStateOf(false) }
+
+    val isSelectionMode = if (selectedTabIndex == 0) selectedModeIds.isNotEmpty() else selectedRoutineIds.isNotEmpty()
+    val currentSelectedCount = if (selectedTabIndex == 0) selectedModeIds.size else selectedRoutineIds.size
+    val allCurrentIds = if (selectedTabIndex == 0) modes.map { it.id }.toSet() else routines.map { it.id }.toSet()
+    val isAllSelected = allCurrentIds.isNotEmpty() && currentSelectedCount == allCurrentIds.size
+
+    // Clear selection when changing tabs
+    LaunchedEffect(selectedTabIndex) {
+        selectedModeIds = emptySet()
+        selectedRoutineIds = emptySet()
+    }
+
+    if (showDeleteConfirm) {
+        val itemType = if (selectedTabIndex == 0) "mode" else "routine"
+        val count = currentSelectedCount
+        AlertDialog(
+            onDismissRequest = { showDeleteConfirm = false },
+            icon = { Icon(Icons.Rounded.Delete, contentDescription = null, tint = MaterialTheme.colorScheme.error) },
+            title = { Text("Delete $count $itemType${if (count > 1) "s" else ""}") },
+            text = { Text("Are you sure you want to delete the selected $itemType${if (count > 1) "s" else ""}? This action cannot be undone.") },
+            confirmButton = {
+                Button(
+                    onClick = {
+                        if (selectedTabIndex == 0) {
+                            viewModel.bulkDeleteModes(selectedModeIds)
+                            selectedModeIds = emptySet()
+                        } else {
+                            viewModel.bulkDeleteRoutines(selectedRoutineIds)
+                            selectedRoutineIds = emptySet()
+                        }
+                        showDeleteConfirm = false
+                    },
+                    colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.error)
+                ) {
+                    Text("Delete")
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { showDeleteConfirm = false }) {
+                    Text("Cancel")
+                }
+            }
+        )
+    }
+
     Scaffold(
         containerColor = MaterialTheme.colorScheme.background,
         topBar = {
             TopAppBar(
                 title = {
                     Text(
-                        text = "Modes and Routines",
+                        text = if (isSelectionMode) "$currentSelectedCount selected" else "Modes and Routines",
                         style = MaterialTheme.typography.headlineMedium,
                         fontWeight = FontWeight.Bold
                     )
                 },
+                navigationIcon = {
+                    if (isSelectionMode) {
+                        IconButton(onClick = {
+                            selectedModeIds = emptySet()
+                            selectedRoutineIds = emptySet()
+                        }) {
+                            Icon(Icons.Rounded.Close, contentDescription = "Clear selection")
+                        }
+                    }
+                },
                 actions = {
-                    IconButton(onClick = { navController.navigate(Screen.Settings.route) }) {
-                        Icon(Icons.Rounded.Settings, contentDescription = "Settings")
+                    if (isSelectionMode) {
+                        TextButton(onClick = {
+                            if (selectedTabIndex == 0) {
+                                selectedModeIds = if (isAllSelected) emptySet() else allCurrentIds
+                            } else {
+                                selectedRoutineIds = if (isAllSelected) emptySet() else allCurrentIds
+                            }
+                        }) {
+                            Text(
+                                text = if (isAllSelected) "Deselect all" else "Select all",
+                                fontWeight = FontWeight.SemiBold
+                            )
+                        }
+                    } else {
+                        IconButton(onClick = { navController.navigate(Screen.Settings.route) }) {
+                            Icon(Icons.Rounded.Settings, contentDescription = "Settings")
+                        }
                     }
                 },
                 colors = TopAppBarDefaults.topAppBarColors(
@@ -59,90 +136,193 @@ fun HomeScreen(
             )
         },
         floatingActionButton = {
-            FloatingActionButton(
-                onClick = {
-                    if (selectedTabIndex == 0) {
-                        navController.navigate(Screen.ModeCreate.createRoute())
-                    } else {
-                        navController.navigate(Screen.RoutineCreate.createRoute())
-                    }
-                },
-                containerColor = MaterialTheme.colorScheme.primary,
-                contentColor = MaterialTheme.colorScheme.onPrimary,
-                shape = CircleShape
-            ) {
-                Icon(Icons.Rounded.Add, contentDescription = "Add")
+            if (!isSelectionMode) {
+                FloatingActionButton(
+                    onClick = {
+                        if (selectedTabIndex == 0) {
+                            navController.navigate(Screen.ModeCreate.createRoute())
+                        } else {
+                            navController.navigate(Screen.RoutineCreate.createRoute())
+                        }
+                    },
+                    containerColor = MaterialTheme.colorScheme.primary,
+                    contentColor = MaterialTheme.colorScheme.onPrimary,
+                    shape = CircleShape
+                ) {
+                    Icon(Icons.Rounded.Add, contentDescription = "Add")
+                }
             }
         }
     ) { padding ->
-        Column(
+        Box(
             modifier = Modifier
                 .padding(padding)
                 .fillMaxSize()
         ) {
-            // Samsung One UI Tab Switcher
-            PrimaryTabRow(
-                selectedTabIndex = selectedTabIndex,
-                containerColor = MaterialTheme.colorScheme.background,
-                contentColor = MaterialTheme.colorScheme.primary,
-                divider = {}
-            ) {
-                Tab(
-                    selected = selectedTabIndex == 0,
-                    onClick = { selectedTabIndex = 0 },
-                    text = {
-                        Text(
-                            text = "Modes",
-                            style = MaterialTheme.typography.titleMedium,
-                            fontWeight = if (selectedTabIndex == 0) FontWeight.Bold else FontWeight.Medium
-                        )
-                    }
-                )
-                Tab(
-                    selected = selectedTabIndex == 1,
-                    onClick = { selectedTabIndex = 1 },
-                    text = {
-                        Text(
-                            text = "Routines",
-                            style = MaterialTheme.typography.titleMedium,
-                            fontWeight = if (selectedTabIndex == 1) FontWeight.Bold else FontWeight.Medium
-                        )
-                    }
-                )
+            Column(modifier = Modifier.fillMaxSize()) {
+                // Samsung One UI Tab Switcher
+                PrimaryTabRow(
+                    selectedTabIndex = selectedTabIndex,
+                    containerColor = MaterialTheme.colorScheme.background,
+                    contentColor = MaterialTheme.colorScheme.primary,
+                    divider = {}
+                ) {
+                    Tab(
+                        selected = selectedTabIndex == 0,
+                        onClick = { selectedTabIndex = 0 },
+                        text = {
+                            Text(
+                                text = "Modes",
+                                style = MaterialTheme.typography.titleMedium,
+                                fontWeight = if (selectedTabIndex == 0) FontWeight.Bold else FontWeight.Medium
+                            )
+                        }
+                    )
+                    Tab(
+                        selected = selectedTabIndex == 1,
+                        onClick = { selectedTabIndex = 1 },
+                        text = {
+                            Text(
+                                text = "Routines",
+                                style = MaterialTheme.typography.titleMedium,
+                                fontWeight = if (selectedTabIndex == 1) FontWeight.Bold else FontWeight.Medium
+                            )
+                        }
+                    )
+                }
+
+                Spacer(modifier = Modifier.height(8.dp))
+
+                if (selectedTabIndex == 0) {
+                    ModesTabContent(
+                        modes = modes,
+                        selectedIds = selectedModeIds,
+                        onModeClick = { mode ->
+                            if (selectedModeIds.isNotEmpty()) {
+                                selectedModeIds = if (mode.id in selectedModeIds) selectedModeIds - mode.id else selectedModeIds + mode.id
+                            } else {
+                                navController.navigate(Screen.ModeDetail.createRoute(mode.id))
+                            }
+                        },
+                        onModeLongClick = { mode ->
+                            selectedModeIds = if (mode.id in selectedModeIds) selectedModeIds - mode.id else selectedModeIds + mode.id
+                        },
+                        onModeToggle = { mode, active -> viewModel.toggleModeActive(mode.id, active) }
+                    )
+                } else {
+                    RoutinesTabContent(
+                        routines = routines,
+                        selectedIds = selectedRoutineIds,
+                        onRoutineClick = { routine ->
+                            if (selectedRoutineIds.isNotEmpty()) {
+                                selectedRoutineIds = if (routine.id in selectedRoutineIds) selectedRoutineIds - routine.id else selectedRoutineIds + routine.id
+                            } else {
+                                navController.navigate(Screen.RoutineDetail.createRoute(routine.id))
+                            }
+                        },
+                        onRoutineLongClick = { routine ->
+                            selectedRoutineIds = if (routine.id in selectedRoutineIds) selectedRoutineIds - routine.id else selectedRoutineIds + routine.id
+                        },
+                        onRoutineToggle = { routine, enabled -> viewModel.toggleRoutineEnabled(routine.id, enabled) },
+                        onAddRoutineClick = { navController.navigate(Screen.RoutineCreate.createRoute()) }
+                    )
+                }
             }
 
-            Spacer(modifier = Modifier.height(8.dp))
+            // Bottom Contextual Action Bar when multi-selecting
+            AnimatedVisibility(
+                visible = isSelectionMode,
+                enter = slideInVertically(initialOffsetY = { it }),
+                exit = slideOutVertically(targetOffsetY = { it }),
+                modifier = Modifier
+                    .align(Alignment.BottomCenter)
+                    .padding(horizontal = 20.dp, vertical = 16.dp)
+                    .navigationBarsPadding()
+            ) {
+                Surface(
+                    shape = RoundedCornerShape(28.dp),
+                    color = MaterialTheme.colorScheme.surfaceContainerHigh,
+                    tonalElevation = 8.dp,
+                    shadowElevation = 10.dp,
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = 16.dp, vertical = 8.dp),
+                        horizontalArrangement = Arrangement.SpaceEvenly,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        // Enable / Turn On Button
+                        TextButton(
+                            onClick = {
+                                if (selectedTabIndex == 0) {
+                                    viewModel.bulkToggleModesActive(selectedModeIds, true)
+                                    selectedModeIds = emptySet()
+                                } else {
+                                    viewModel.bulkToggleRoutinesEnabled(selectedRoutineIds, true)
+                                    selectedRoutineIds = emptySet()
+                                }
+                            }
+                        ) {
+                            Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                                Icon(Icons.Rounded.PlayCircleOutline, contentDescription = "Turn on", tint = MaterialTheme.colorScheme.primary)
+                                Text(if (selectedTabIndex == 0) "Turn on" else "Enable", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.primary)
+                            }
+                        }
 
-            if (selectedTabIndex == 0) {
-                ModesTabContent(
-                    modes = modes,
-                    onModeClick = { navController.navigate(Screen.ModeDetail.createRoute(it.id)) },
-                    onModeToggle = { mode, active -> viewModel.toggleModeActive(mode.id, active) }
-                )
-            } else {
-                RoutinesTabContent(
-                    routines = routines,
-                    onRoutineClick = { navController.navigate(Screen.RoutineDetail.createRoute(it.id)) },
-                    onRoutineToggle = { routine, enabled -> viewModel.toggleRoutineEnabled(routine.id, enabled) },
-                    onAddRoutineClick = { navController.navigate(Screen.RoutineCreate.createRoute()) }
-                )
+                        // Disable / Turn Off Button
+                        TextButton(
+                            onClick = {
+                                if (selectedTabIndex == 0) {
+                                    viewModel.bulkToggleModesActive(selectedModeIds, false)
+                                    selectedModeIds = emptySet()
+                                } else {
+                                    viewModel.bulkToggleRoutinesEnabled(selectedRoutineIds, false)
+                                    selectedRoutineIds = emptySet()
+                                }
+                            }
+                        ) {
+                            Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                                Icon(Icons.Rounded.PauseCircleOutline, contentDescription = "Turn off", tint = MaterialTheme.colorScheme.onSurfaceVariant)
+                                Text(if (selectedTabIndex == 0) "Turn off" else "Disable", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                            }
+                        }
+
+                        // Delete Button
+                        TextButton(
+                            onClick = { showDeleteConfirm = true }
+                        ) {
+                            Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                                Icon(Icons.Rounded.DeleteOutline, contentDescription = "Delete", tint = MaterialTheme.colorScheme.error)
+                                Text("Delete", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.error)
+                            }
+                        }
+                    }
+                }
             }
         }
     }
 }
 
+@OptIn(ExperimentalFoundationApi::class)
 @Composable
 fun ModesTabContent(
     modes: List<Mode>,
+    selectedIds: Set<Long>,
     onModeClick: (Mode) -> Unit,
+    onModeLongClick: (Mode) -> Unit,
     onModeToggle: (Mode, Boolean) -> Unit
 ) {
+    val isSelectionActive = selectedIds.isNotEmpty()
+
     LazyColumn(
         contentPadding = PaddingValues(horizontal = 20.dp, vertical = 12.dp),
         verticalArrangement = Arrangement.spacedBy(14.dp),
         modifier = Modifier.fillMaxSize()
     ) {
         items(modes, key = { it.id }) { mode ->
+            val isSelected = mode.id in selectedIds
             val modeColor = try {
                 Color(android.graphics.Color.parseColor(mode.colorHex))
             } catch (e: Exception) {
@@ -150,23 +330,30 @@ fun ModesTabContent(
             }
 
             val cardBg by animateColorAsState(
-                targetValue = if (mode.isActive) modeColor.copy(alpha = 0.15f) else MaterialTheme.colorScheme.surface,
+                targetValue = when {
+                    isSelected -> MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.4f)
+                    mode.isActive -> modeColor.copy(alpha = 0.15f)
+                    else -> MaterialTheme.colorScheme.surface
+                },
                 label = "cardBg"
             )
 
             Surface(
                 shape = RoundedCornerShape(22.dp),
                 color = cardBg,
-                tonalElevation = if (mode.isActive) 4.dp else 2.dp,
+                tonalElevation = if (mode.isActive || isSelected) 4.dp else 2.dp,
                 modifier = Modifier
                     .fillMaxWidth()
                     .border(
-                        width = if (mode.isActive) 1.5.dp else 0.dp,
-                        color = if (mode.isActive) modeColor.copy(alpha = 0.5f) else Color.Transparent,
+                        width = if (isSelected) 2.dp else if (mode.isActive) 1.5.dp else 0.dp,
+                        color = if (isSelected) MaterialTheme.colorScheme.primary else if (mode.isActive) modeColor.copy(alpha = 0.5f) else Color.Transparent,
                         shape = RoundedCornerShape(22.dp)
                     )
                     .clip(RoundedCornerShape(22.dp))
-                    .clickable { onModeClick(mode) }
+                    .combinedClickable(
+                        onClick = { onModeClick(mode) },
+                        onLongClick = { onModeLongClick(mode) }
+                    )
             ) {
                 Row(
                     modifier = Modifier
@@ -174,6 +361,14 @@ fun ModesTabContent(
                         .padding(18.dp),
                     verticalAlignment = Alignment.CenterVertically
                 ) {
+                    if (isSelectionActive) {
+                        Checkbox(
+                            checked = isSelected,
+                            onCheckedChange = { onModeClick(mode) },
+                            modifier = Modifier.padding(end = 8.dp)
+                        )
+                    }
+
                     Box(
                         modifier = Modifier
                             .size(50.dp)
@@ -206,31 +401,38 @@ fun ModesTabContent(
                         )
                     }
 
-                    Switch(
-                        checked = mode.isActive,
-                        onCheckedChange = { onModeToggle(mode, it) },
-                        colors = SwitchDefaults.colors(
-                            checkedThumbColor = Color.White,
-                            checkedTrackColor = modeColor
+                    if (!isSelectionActive) {
+                        Switch(
+                            checked = mode.isActive,
+                            onCheckedChange = { onModeToggle(mode, it) },
+                            colors = SwitchDefaults.colors(
+                                checkedThumbColor = Color.White,
+                                checkedTrackColor = modeColor
+                            )
                         )
-                    )
+                    }
                 }
             }
         }
 
         item {
-            Spacer(modifier = Modifier.height(72.dp))
+            Spacer(modifier = Modifier.height(96.dp))
         }
     }
 }
 
+@OptIn(ExperimentalFoundationApi::class)
 @Composable
 fun RoutinesTabContent(
     routines: List<Routine>,
+    selectedIds: Set<Long>,
     onRoutineClick: (Routine) -> Unit,
+    onRoutineLongClick: (Routine) -> Unit,
     onRoutineToggle: (Routine, Boolean) -> Unit,
     onAddRoutineClick: () -> Unit
 ) {
+    val isSelectionActive = selectedIds.isNotEmpty()
+
     if (routines.isEmpty()) {
         Box(
             modifier = Modifier
@@ -290,6 +492,7 @@ fun RoutinesTabContent(
             modifier = Modifier.fillMaxSize()
         ) {
             items(routines, key = { it.id }) { routine ->
+                val isSelected = routine.id in selectedIds
                 val firstTrigger = routine.triggers.firstOrNull()
                 val icon = firstTrigger?.let { UiIcons.getTriggerIcon(it.type) } ?: Icons.Rounded.AutoAwesome
                 val color = firstTrigger?.let { UiIcons.getTriggerColor(it.type.category) } ?: MaterialTheme.colorScheme.primary
@@ -306,14 +509,27 @@ fun RoutinesTabContent(
                     title
                 }.ifBlank { "No actions" }
 
+                val cardBg by animateColorAsState(
+                    targetValue = if (isSelected) MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.4f) else MaterialTheme.colorScheme.surface,
+                    label = "cardBg"
+                )
+
                 Surface(
                     shape = RoundedCornerShape(22.dp),
-                    color = MaterialTheme.colorScheme.surface,
-                    tonalElevation = 2.dp,
+                    color = cardBg,
+                    tonalElevation = if (isSelected) 4.dp else 2.dp,
                     modifier = Modifier
                         .fillMaxWidth()
+                        .border(
+                            width = if (isSelected) 2.dp else 0.dp,
+                            color = if (isSelected) MaterialTheme.colorScheme.primary else Color.Transparent,
+                            shape = RoundedCornerShape(22.dp)
+                        )
                         .clip(RoundedCornerShape(22.dp))
-                        .clickable { onRoutineClick(routine) }
+                        .combinedClickable(
+                            onClick = { onRoutineClick(routine) },
+                            onLongClick = { onRoutineLongClick(routine) }
+                        )
                 ) {
                     Row(
                         modifier = Modifier
@@ -321,6 +537,14 @@ fun RoutinesTabContent(
                             .padding(18.dp),
                         verticalAlignment = Alignment.CenterVertically
                     ) {
+                        if (isSelectionActive) {
+                            Checkbox(
+                                checked = isSelected,
+                                onCheckedChange = { onRoutineClick(routine) },
+                                modifier = Modifier.padding(end = 8.dp)
+                            )
+                        }
+
                         Box(
                             modifier = Modifier
                                 .size(48.dp)
@@ -360,16 +584,18 @@ fun RoutinesTabContent(
                             )
                         }
 
-                        Switch(
-                            checked = routine.isEnabled,
-                            onCheckedChange = { onRoutineToggle(routine, it) }
-                        )
+                        if (!isSelectionActive) {
+                            Switch(
+                                checked = routine.isEnabled,
+                                onCheckedChange = { onRoutineToggle(routine, it) }
+                            )
+                        }
                     }
                 }
             }
 
             item {
-                Spacer(modifier = Modifier.height(72.dp))
+                Spacer(modifier = Modifier.height(96.dp))
             }
         }
     }

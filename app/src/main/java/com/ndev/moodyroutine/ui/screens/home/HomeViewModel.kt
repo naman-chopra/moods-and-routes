@@ -51,4 +51,30 @@ class HomeViewModel(application: Application) : AndroidViewModel(application) {
     fun deleteRoutine(routine: Routine) {
         viewModelScope.launch { routineRepository.deleteRoutine(routine) }
     }
+
+    fun bulkToggleModesActive(modeIds: Set<Long>, active: Boolean) {
+        viewModelScope.launch {
+            modeIds.forEach { modeRepository.setModeActive(it, active) }
+        }
+    }
+
+    fun bulkToggleRoutinesEnabled(routineIds: Set<Long>, enabled: Boolean) {
+        viewModelScope.launch {
+            routineIds.forEach { routineRepository.setRoutineEnabled(it, enabled) }
+        }
+    }
+
+    fun bulkDeleteModes(modeIds: Set<Long>) {
+        viewModelScope.launch {
+            val currentModes = _modes.value
+            currentModes.filter { it.id in modeIds }.forEach { modeRepository.deleteMode(it) }
+        }
+    }
+
+    fun bulkDeleteRoutines(routineIds: Set<Long>) {
+        viewModelScope.launch {
+            val currentRoutines = _routines.value
+            currentRoutines.filter { it.id in routineIds }.forEach { routineRepository.deleteRoutine(it) }
+        }
+    }
 }

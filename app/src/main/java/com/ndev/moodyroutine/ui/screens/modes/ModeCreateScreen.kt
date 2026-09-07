@@ -69,16 +69,17 @@ class ModeCreateViewModel(application: Application) : AndroidViewModel(applicati
 
     fun saveMode(onComplete: () -> Unit) {
         viewModelScope.launch {
+            val existing = modeId?.let { repository.getModeById(it).firstOrNull() }
             val mode = Mode(
                 id = modeId ?: 0,
                 name = name.value.ifBlank { "Custom Mode" },
                 description = description.value,
                 iconName = iconName.value,
                 colorHex = colorHex.value,
-                isActive = false,
+                isActive = existing?.isActive ?: true,
                 actions = actions.value,
                 autoTriggers = autoTriggers.value,
-                createdAt = System.currentTimeMillis()
+                createdAt = existing?.createdAt ?: System.currentTimeMillis()
             )
             if (modeId == null) repository.insertMode(mode) else repository.updateMode(mode)
             onComplete()
