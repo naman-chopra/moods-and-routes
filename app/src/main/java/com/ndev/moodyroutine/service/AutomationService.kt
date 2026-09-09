@@ -1,8 +1,10 @@
 package com.ndev.moodyroutine.service
 
 import android.annotation.SuppressLint
+import android.app.ActivityOptions
 import android.app.NotificationChannel
 import android.app.NotificationManager
+import android.app.PendingIntent
 import android.app.Service
 import android.app.usage.UsageEvents
 import android.app.usage.UsageStatsManager
@@ -20,8 +22,14 @@ import android.os.BatteryManager
 import android.os.Build
 import android.os.IBinder
 import android.os.PowerManager
-import android.util.Log
 import androidx.core.app.NotificationCompat
+import com.ndev.moodyroutine.MainActivity
+import com.ndev.moodyroutine.R
+import com.ndev.moodyroutine.data.model.ActionType
+import com.ndev.moodyroutine.data.model.Mode
+import com.ndev.moodyroutine.ui.util.HumanFormatter
+import com.ndev.moodyroutine.ui.util.UiIcons
+import com.ndev.moodyroutine.util.AppLogger
 import com.ndev.moodyroutine.data.db.MoodyRoutineDatabase
 import com.ndev.moodyroutine.data.repository.ModeRepository
 import com.ndev.moodyroutine.data.repository.RoutineRepository
@@ -32,9 +40,35 @@ import com.ndev.moodyroutine.engine.ConditionEvaluator
 import com.ndev.moodyroutine.engine.EventBus
 import kotlinx.coroutines.*
 import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.firstOrNull
 import java.util.Calendar
 
 class AutomationService : Service() {
+    companion object {
+        const val CHANNEL_SERVICE = "moody_routine_service"
+        const val CHANNEL_ACTIVE_MODES = "active_modes_channel"
+        const val CHANNEL_BLOCKER = "moody_routine_blocker"
+        const val NOTIFICATION_ID_SERVICE = 1
+        const val NOTIFICATION_ID_MODE_BASE = 10000
+        const val ACTION_TURN_OFF_MODE = "com.ndev.moodyroutine.action.TURN_OFF_MODE"
+        const val EXTRA_MODE_ID = "extra_mode_id"
+
+        private val snoozedApps = java.util.concurrent.ConcurrentHashMap<String, Long>()
+
+        fun temporarilyAllowApp(packageName: String, durationMs: Long) {
+            snoozedApps[packageName] = System.currentTimeMillis() + durationMs
+        }
+
+        fun isAppSnoozed(packageName: String): Boolean {
+            val expiry = snoozedApps[packageName] ?: return false
+            if (System.currentTimeMillis() > expiry) {
+                snoozedApps.remove(packageName)
+                return false
+            }
+            return true
+        }
+    }
+
     private var engine: AutomationEngine? = null
     private val scope = CoroutineScope(Dispatchers.IO + SupervisorJob())
     private var isReceiverRegistered = false
@@ -45,6 +79,10 @@ class AutomationService : Service() {
     private var timeTickerJob: Job? = null
     private var appTrackerJob: Job? = null
     private var lastForegroundApp: String? = null
+    private var modeRepository: ModeRepository? = null
+    private var actionExecutor: ActionExecutor? = null
+    private val currentlyNotifiedModeIds = mutableSetOf<Long>()
+    private var activeRestrictedApps: Map<String, Mode> = emptyMap()
 
     private val receiver = object : BroadcastReceiver() {
         override fun onReceive(context: Context?, intent: Intent?) {
@@ -58,24 +96,24 @@ class AutomationService : Service() {
                         EventBus.emit(AutomationEvent.BatteryEvent(level, isCharging))
                     }
                     Intent.ACTION_POWER_CONNECTED -> {
-                        Log.i("MoodyRoutine", "Power connected")
+                        AppLogger.i("AutomationService", "Power connected")
                         EventBus.emit(AutomationEvent.PowerEvent(true))
                     }
                     Intent.ACTION_POWER_DISCONNECTED -> {
-                        Log.i("MoodyRoutine", "Power disconnected")
+                        AppLogger.i("AutomationService", "Power disconnected")
                         EventBus.emit(AutomationEvent.PowerEvent(false))
                     }
                     Intent.ACTION_HEADSET_PLUG -> {
                         val state = intent.getIntExtra("state", 0)
-                        Log.i("MoodyRoutine", "Headphones plug state: $state")
+                        AppLogger.i("AutomationService", "Headphones plug state: $state")
                         EventBus.emit(AutomationEvent.HeadphoneEvent(state == 1))
                     }
                     Intent.ACTION_SCREEN_ON -> {
-                        Log.d("MoodyRoutine", "Screen ON")
+                        AppLogger.d("AutomationService", "Screen ON")
                         EventBus.emit(AutomationEvent.ScreenEvent(true))
                     }
                     Intent.ACTION_SCREEN_OFF -> {
-                        Log.d("MoodyRoutine", "Screen OFF")
+                        AppLogger.d("AutomationService", "Screen OFF")
                         EventBus.emit(AutomationEvent.ScreenEvent(false))
                     }
                     BluetoothDevice.ACTION_ACL_CONNECTED -> {
@@ -87,7 +125,7 @@ class AutomationService : Service() {
                         }
                         val name = try { device?.name } catch (_: SecurityException) { null }
                         val address = device?.address
-                        Log.i("MoodyRoutine", "Bluetooth device connected: $name ($address)")
+                        AppLogger.i("AutomationService", "Bluetooth device connected: $name ($address)")
                         EventBus.emit(AutomationEvent.BluetoothEvent(isConnected = true, deviceName = name, deviceAddress = address))
                     }
                     BluetoothDevice.ACTION_ACL_DISCONNECTED -> {
@@ -99,7 +137,7 @@ class AutomationService : Service() {
                         }
                         val name = try { device?.name } catch (_: SecurityException) { null }
                         val address = device?.address
-                        Log.i("MoodyRoutine", "Bluetooth device disconnected: $name ($address)")
+                        AppLogger.i("AutomationService", "Bluetooth device disconnected: $name ($address)")
                         EventBus.emit(AutomationEvent.BluetoothEvent(isConnected = false, deviceName = name, deviceAddress = address))
                     }
                 }
@@ -109,7 +147,7 @@ class AutomationService : Service() {
 
     override fun onCreate() {
         super.onCreate()
-        Log.i("MoodyRoutine", "AutomationService created")
+        AppLogger.i("AutomationService", "AutomationService created")
         createNotificationChannel()
         val notification = NotificationCompat.Builder(this, "moody_routine_service")
             .setContentTitle("MoodyRoutine is active")
@@ -123,13 +161,17 @@ class AutomationService : Service() {
         val db = MoodyRoutineDatabase.getInstance(this)
         val routineRepo = RoutineRepository(db.routineDao())
         val modeRepo = ModeRepository(db.modeDao())
+        modeRepository = modeRepo
+
+        val actionExec = ActionExecutor(this)
+        actionExecutor = actionExec
 
         engine = AutomationEngine(
             context = this,
             routineRepository = routineRepo,
             modeRepository = modeRepo,
             conditionEvaluator = ConditionEvaluator(),
-            actionExecutor = ActionExecutor(this)
+            actionExecutor = actionExec
         )
         engine?.start()
 
@@ -146,6 +188,13 @@ class AutomationService : Service() {
             }.collect { (routines, modes) ->
                 locationTracker?.updateTargets(routines, modes)
                 geofenceManager?.updateGeofences(routines, modes)
+            }
+        }
+
+        // Observe active modes and show persistent notifications
+        scope.launch {
+            modeRepo.getActiveModes().collect { activeModes ->
+                updateActiveModeNotifications(activeModes)
             }
         }
 
@@ -183,7 +232,7 @@ class AutomationService : Service() {
                         val info = wifiManager?.connectionInfo
                         val rawSsid = info?.ssid?.replace("\"", "")
                         val ssid = if (rawSsid == "<unknown ssid>" || rawSsid.isNullOrBlank()) null else rawSsid
-                        Log.i("MoodyRoutine", "Wi-Fi connected: ssid=$ssid")
+                        AppLogger.i("AutomationService", "Wi-Fi connected: ssid=$ssid")
                         scope.launch {
                             EventBus.emit(AutomationEvent.WifiEvent(isConnected = true, ssid = ssid))
                         }
@@ -191,7 +240,7 @@ class AutomationService : Service() {
                 }
 
                 override fun onLost(network: Network) {
-                    Log.i("MoodyRoutine", "Wi-Fi disconnected")
+                    AppLogger.i("AutomationService", "Wi-Fi disconnected")
                     scope.launch {
                         EventBus.emit(AutomationEvent.WifiEvent(isConnected = false, ssid = null))
                     }
@@ -203,7 +252,7 @@ class AutomationService : Service() {
                 .build()
             connectivityManager?.registerNetworkCallback(request, networkCallback!!)
         } catch (e: Exception) {
-            Log.e("MoodyRoutine", "Error registering network callback", e)
+            AppLogger.e("AutomationService", "Error registering network callback", e)
         }
     }
 
@@ -249,11 +298,60 @@ class AutomationService : Service() {
                     if (currentPkg != null && currentPkg != lastForegroundApp && currentPkg != packageName) {
                         val previousPkg = lastForegroundApp
                         lastForegroundApp = currentPkg
-                        Log.d("MoodyRoutine", "Foreground app switched: $currentPkg (was $previousPkg)")
+                        AppLogger.d("AutomationService", "Foreground app switched: $currentPkg (was $previousPkg)")
                         if (previousPkg != null) {
                             EventBus.emit(AutomationEvent.AppEvent(packageName = previousPkg, isOpened = false))
                         }
                         EventBus.emit(AutomationEvent.AppEvent(packageName = currentPkg, isOpened = true))
+
+                        // Check if currentPkg is restricted under an active mode
+                        val blockingMode = activeRestrictedApps[currentPkg]
+                        if (blockingMode != null && !isAppSnoozed(currentPkg)) {
+                            AppLogger.i("AutomationService", "Restricted app launched: $currentPkg during ${blockingMode.name}")
+                            val appLabel = try {
+                                val pm = packageManager
+                                val appInfo = pm.getApplicationInfo(currentPkg, 0)
+                                pm.getApplicationLabel(appInfo).toString()
+                            } catch (_: Exception) {
+                                currentPkg
+                            }
+                            val blockIntent = Intent(this@AutomationService, com.ndev.moodyroutine.ui.activity.AppBlockActivity::class.java).apply {
+                                flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_SINGLE_TOP
+                                putExtra(com.ndev.moodyroutine.ui.activity.AppBlockActivity.EXTRA_PACKAGE_NAME, currentPkg)
+                                putExtra(com.ndev.moodyroutine.ui.activity.AppBlockActivity.EXTRA_APP_NAME, appLabel)
+                                putExtra(com.ndev.moodyroutine.ui.activity.AppBlockActivity.EXTRA_MODE_NAME, blockingMode.name)
+                                putExtra(com.ndev.moodyroutine.ui.activity.AppBlockActivity.EXTRA_MODE_ID, blockingMode.id)
+                            }
+                            val options = ActivityOptions.makeBasic()
+                            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
+                                options.setPendingIntentBackgroundActivityStartMode(ActivityOptions.MODE_BACKGROUND_ACTIVITY_START_ALLOWED)
+                            }
+                            val pi = PendingIntent.getActivity(
+                                this@AutomationService,
+                                (currentPkg.hashCode() and 0xffff),
+                                blockIntent,
+                                PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+                            )
+
+                            // Show full screen intent notification
+                            val notifManager = getSystemService(Context.NOTIFICATION_SERVICE) as? NotificationManager
+                            val blockNotif = NotificationCompat.Builder(this@AutomationService, CHANNEL_BLOCKER)
+                                .setSmallIcon(R.mipmap.ic_launcher)
+                                .setContentTitle("Stay focused - ${blockingMode.name}")
+                                .setContentText("$appLabel is blocked during ${blockingMode.name}")
+                                .setPriority(NotificationCompat.PRIORITY_MAX)
+                                .setCategory(NotificationCompat.CATEGORY_ALARM)
+                                .setFullScreenIntent(pi, true)
+                                .setAutoCancel(true)
+                                .build()
+                            notifManager?.notify(9999, blockNotif)
+
+                            try {
+                                pi.send(this@AutomationService, 0, null, null, null, null, options.toBundle())
+                            } catch (_: Exception) {
+                                startActivity(blockIntent)
+                            }
+                        }
                     }
                 } catch (_: Exception) {}
             }
@@ -261,7 +359,148 @@ class AutomationService : Service() {
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
+        if (intent?.action == ACTION_TURN_OFF_MODE) {
+            val modeId = intent.getLongExtra(EXTRA_MODE_ID, -1L)
+            if (modeId != -1L) {
+                scope.launch {
+                    val repo = modeRepository ?: return@launch
+                    val mode = repo.getModeById(modeId).firstOrNull()
+                    if (mode != null) {
+                        AppLogger.i("AutomationService", "Turning off mode ${mode.name} via persistent notification action")
+                        repo.setModeActive(mode.id, false)
+                        if (mode.revertActionsOnExit) {
+                            actionExecutor?.revertMode(mode)
+                        }
+                    }
+                }
+            }
+        }
         return START_STICKY
+    }
+
+    private fun updateActiveModeNotifications(activeModes: List<Mode>) {
+        val manager = getSystemService(Context.NOTIFICATION_SERVICE) as? NotificationManager ?: return
+
+        // Update active restricted apps mapping from active modes
+        val restrictedMap = mutableMapOf<String, Mode>()
+        for (m in activeModes) {
+            for (action in m.actions) {
+                if (action.type == ActionType.RESTRICT_APPS) {
+                    val pkgs = action.params["restrictedPackages"]?.split(",") ?: emptyList()
+                    for (pkg in pkgs) {
+                        val trimmed = pkg.trim()
+                        if (trimmed.isNotBlank()) {
+                            restrictedMap[trimmed] = m
+                        }
+                    }
+                }
+            }
+        }
+        activeRestrictedApps = restrictedMap
+
+        // 1. Cancel any legacy separate mode notifications
+        for (id in currentlyNotifiedModeIds) {
+            manager.cancel(NOTIFICATION_ID_MODE_BASE + id.toInt())
+        }
+        currentlyNotifiedModeIds.clear()
+
+        if (activeModes.isEmpty()) {
+            // Restore default idle service notification
+            val openIntent = Intent(this, MainActivity::class.java).apply {
+                flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP
+            }
+            val openPendingIntent = PendingIntent.getActivity(
+                this,
+                NOTIFICATION_ID_SERVICE,
+                openIntent,
+                PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+            )
+
+            val idleNotification = NotificationCompat.Builder(this, CHANNEL_SERVICE)
+                .setContentTitle("MoodyRoutine is active")
+                .setContentText("Monitoring for automated triggers & locations")
+                .setSmallIcon(com.ndev.moodyroutine.R.drawable.ic_mode_custom)
+                .setOngoing(true)
+                .setAutoCancel(false)
+                .setOnlyAlertOnce(true)
+                .setPriority(NotificationCompat.PRIORITY_LOW)
+                .setContentIntent(openPendingIntent)
+                .build()
+
+            manager.notify(NOTIFICATION_ID_SERVICE, idleNotification)
+            AppLogger.i("AutomationService", "Updated service notification to idle state")
+        } else {
+            val mode = activeModes.first()
+            val notifId = NOTIFICATION_ID_SERVICE
+
+            val openIntent = Intent(this, MainActivity::class.java).apply {
+                flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP
+            }
+            val openPendingIntent = PendingIntent.getActivity(
+                this,
+                notifId,
+                openIntent,
+                PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+            )
+
+            val turnOffIntent = Intent(this, AutomationService::class.java).apply {
+                action = ACTION_TURN_OFF_MODE
+                putExtra(EXTRA_MODE_ID, mode.id)
+            }
+            val turnOffPendingIntent = PendingIntent.getService(
+                this,
+                notifId,
+                turnOffIntent,
+                PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+            )
+
+            val actionSummary = if (mode.actions.isNotEmpty()) {
+                mode.actions.joinToString(", ") { HumanFormatter.formatAction(it).first }
+            } else {
+                "Mode is currently active"
+            }
+
+            val iconResId = UiIcons.getModeDrawableRes(mode.iconName)
+            val largeIconBitmap = UiIcons.getModeLargeIconBitmap(this, mode.iconName, mode.colorHex)
+            val modeColor = try {
+                android.graphics.Color.parseColor(mode.colorHex)
+            } catch (_: Exception) {
+                0xFF3B82F6.toInt()
+            }
+
+            val title = if (activeModes.size == 1) {
+                "${mode.name} mode is on"
+            } else {
+                "${activeModes.joinToString { it.name }} are on"
+            }
+
+            val builder = NotificationCompat.Builder(this, CHANNEL_ACTIVE_MODES)
+                .setContentTitle(title)
+                .setContentText(actionSummary)
+                .setStyle(NotificationCompat.BigTextStyle().bigText("${mode.name} mode is currently active.\nActions: $actionSummary"))
+                .setSmallIcon(iconResId)
+                .setColor(modeColor)
+                .setColorized(true)
+                .setOngoing(true)
+                .setAutoCancel(false)
+                .setOnlyAlertOnce(true)
+                .setPriority(NotificationCompat.PRIORITY_DEFAULT)
+                .setContentIntent(openPendingIntent)
+                .setGroup("moody_routine_active_modes")
+                .addAction(
+                    android.R.drawable.ic_menu_close_clear_cancel,
+                    "Turn off",
+                    turnOffPendingIntent
+                )
+
+            if (largeIconBitmap != null) {
+                builder.setLargeIcon(largeIconBitmap)
+            }
+
+            val notification = builder.build()
+            manager.notify(notifId, notification)
+            AppLogger.i("AutomationService", "Updated service notification for active mode: ${mode.name} with icon ${mode.iconName}")
+        }
     }
 
     override fun onDestroy() {
@@ -272,6 +511,12 @@ class AutomationService : Service() {
         appTrackerJob?.cancel()
         scope.cancel()
 
+        val manager = getSystemService(Context.NOTIFICATION_SERVICE) as? NotificationManager
+        for (id in currentlyNotifiedModeIds) {
+            manager?.cancel(NOTIFICATION_ID_MODE_BASE + id.toInt())
+        }
+        currentlyNotifiedModeIds.clear()
+
         if (isReceiverRegistered) {
             unregisterReceiver(receiver)
             isReceiverRegistered = false
@@ -279,20 +524,36 @@ class AutomationService : Service() {
         networkCallback?.let {
             try { connectivityManager?.unregisterNetworkCallback(it) } catch (_: Exception) {}
         }
-        Log.i("MoodyRoutine", "AutomationService destroyed")
+        AppLogger.i("AutomationService", "AutomationService destroyed")
     }
 
     override fun onBind(intent: Intent?): IBinder? = null
 
     private fun createNotificationChannel() {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-            val channel = NotificationChannel(
-                "moody_routine_service",
+            val serviceChannel = NotificationChannel(
+                CHANNEL_SERVICE,
                 "Automation Service",
                 NotificationManager.IMPORTANCE_LOW
             )
+            val activeModesChannel = NotificationChannel(
+                CHANNEL_ACTIVE_MODES,
+                "Active Modes",
+                NotificationManager.IMPORTANCE_DEFAULT
+            ).apply {
+                description = "Persistent notifications for currently active modes"
+            }
+            val blockerChannel = NotificationChannel(
+                CHANNEL_BLOCKER,
+                "App Blocker",
+                NotificationManager.IMPORTANCE_HIGH
+            ).apply {
+                description = "Fullscreen blocker alerts for restricted apps"
+            }
             val manager = getSystemService(NotificationManager::class.java)
-            manager.createNotificationChannel(channel)
+            manager.createNotificationChannel(serviceChannel)
+            manager.createNotificationChannel(activeModesChannel)
+            manager.createNotificationChannel(blockerChannel)
         }
     }
 }

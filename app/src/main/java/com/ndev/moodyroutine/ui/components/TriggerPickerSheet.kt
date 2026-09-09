@@ -104,11 +104,16 @@ fun TriggerPickerSheet(
         TriggerType.BLUETOOTH_SPECIFIC_DEVICE -> {
             BluetoothConfigDialog(
                 onDismiss = { configuringTriggerType = null },
-                onConfirm = { name ->
+                onConfirm = { name, address ->
                     onTriggerSelected(
                         TriggerConfig(
                             type = TriggerType.BLUETOOTH_SPECIFIC_DEVICE,
-                            params = mapOf("deviceName" to name)
+                            params = buildMap {
+                                put("deviceName", name)
+                                if (!address.isNullOrBlank()) {
+                                    put("deviceAddress", address)
+                                }
+                            }
                         )
                     )
                     configuringTriggerType = null

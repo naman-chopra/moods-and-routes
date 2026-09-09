@@ -15,4 +15,5 @@ sealed class Screen(val route: String) {
         fun createRoute(routineId: Long? = null) = if (routineId != null) "routine_create?routineId=$routineId" else "routine_create"
     }
     object Settings : Screen("settings")
+    object DiagnosticLogs : Screen("diagnostic_logs")
 }

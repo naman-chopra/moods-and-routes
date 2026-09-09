@@ -5,10 +5,10 @@ import android.app.PendingIntent
 import android.content.Context
 import android.content.Intent
 import android.os.Build
-import android.util.Log
 import com.google.android.gms.location.Geofence
 import com.google.android.gms.location.GeofencingRequest
 import com.google.android.gms.location.LocationServices
+import com.ndev.moodyroutine.util.AppLogger
 import com.ndev.moodyroutine.data.model.Mode
 import com.ndev.moodyroutine.data.model.Routine
 import com.ndev.moodyroutine.data.model.TriggerType
@@ -84,14 +84,14 @@ class GeofenceManager(private val context: Context) {
             try {
                 client.addGeofences(request, geofencePendingIntent).run {
                     addOnSuccessListener {
-                        Log.i("MoodyRoutine", "Successfully registered ${geofences.size} Play Services geofences")
+                        AppLogger.i("GeofenceManager", "Successfully registered ${geofences.size} Play Services geofences")
                     }
                     addOnFailureListener { e ->
-                        Log.w("MoodyRoutine", "Failed to add Play Services geofences (LocationTracker active as fallback): ${e.message}")
+                        AppLogger.w("GeofenceManager", "Failed to add Play Services geofences (LocationTracker active as fallback): ${e.message}")
                     }
                 }
             } catch (e: SecurityException) {
-                Log.w("MoodyRoutine", "Missing background location for Play Services geofences (LocationTracker active as fallback): ${e.message}")
+                AppLogger.w("GeofenceManager", "Missing background location for Play Services geofences (LocationTracker active as fallback): ${e.message}")
             }
         } else {
             try {

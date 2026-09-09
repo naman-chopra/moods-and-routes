@@ -15,7 +15,7 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 
-@Database(entities = [RoutineEntity::class, ModeEntity::class], version = 2, exportSchema = false)
+@Database(entities = [RoutineEntity::class, ModeEntity::class], version = 4, exportSchema = false)
 @TypeConverters(Converters::class)
 abstract class MoodyRoutineDatabase : RoomDatabase() {
 
@@ -26,6 +26,19 @@ abstract class MoodyRoutineDatabase : RoomDatabase() {
         @Volatile
         private var INSTANCE: MoodyRoutineDatabase? = null
 
+        private val MIGRATION_2_3 = object : androidx.room.migration.Migration(2, 3) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("ALTER TABLE modes ADD COLUMN revertActionsOnExit INTEGER NOT NULL DEFAULT 1")
+            }
+        }
+
+        private val MIGRATION_3_4 = object : androidx.room.migration.Migration(3, 4) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("ALTER TABLE routines ADD COLUMN revertActionsOnExit INTEGER NOT NULL DEFAULT 1")
+                db.execSQL("ALTER TABLE routines ADD COLUMN isActive INTEGER NOT NULL DEFAULT 0")
+            }
+        }
+
         fun getInstance(context: Context): MoodyRoutineDatabase {
             return INSTANCE ?: synchronized(this) {
                 val instance = Room.databaseBuilder(
@@ -33,6 +46,7 @@ abstract class MoodyRoutineDatabase : RoomDatabase() {
                     MoodyRoutineDatabase::class.java,
                     "moody_routine_database"
                 )
+                    .addMigrations(MIGRATION_2_3, MIGRATION_3_4)
                     .fallbackToDestructiveMigration()
                     .addCallback(object : RoomDatabase.Callback() {
                         override fun onCreate(db: SupportSQLiteDatabase) {

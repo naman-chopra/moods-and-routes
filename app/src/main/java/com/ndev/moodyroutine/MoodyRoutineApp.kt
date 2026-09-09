@@ -4,6 +4,8 @@ import android.app.Application
 import android.app.NotificationChannel
 import android.app.NotificationManager
 import com.ndev.moodyroutine.data.db.MoodyRoutineDatabase
+import com.ndev.moodyroutine.util.AppLogger
+import com.ndev.moodyroutine.util.PreferencesManager
 
 class MoodyRoutineApp : Application() {
 
@@ -13,6 +15,8 @@ class MoodyRoutineApp : Application() {
 
     override fun onCreate() {
         super.onCreate()
+        PreferencesManager.init(this)
+        AppLogger.init(this)
         createNotificationChannels()
     }
 

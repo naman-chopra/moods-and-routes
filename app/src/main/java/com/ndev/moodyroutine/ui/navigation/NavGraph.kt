@@ -11,6 +11,7 @@ import com.ndev.moodyroutine.ui.screens.modes.ModeCreateScreen
 import com.ndev.moodyroutine.ui.screens.modes.ModeDetailScreen
 import com.ndev.moodyroutine.ui.screens.routines.RoutineCreateScreen
 import com.ndev.moodyroutine.ui.screens.routines.RoutineDetailScreen
+import com.ndev.moodyroutine.ui.screens.settings.DiagnosticLogsScreen
 import com.ndev.moodyroutine.ui.screens.settings.SettingsScreen
 
 @Composable
@@ -53,6 +54,9 @@ fun NavGraph(navController: NavHostController) {
         }
         composable(Screen.Settings.route) {
             SettingsScreen(navController = navController)
+        }
+        composable(Screen.DiagnosticLogs.route) {
+            DiagnosticLogsScreen(navController = navController)
         }
     }
 }

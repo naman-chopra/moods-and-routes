@@ -72,13 +72,18 @@ fun ActionPickerSheet(
             )
         }
         ActionType.OPEN_APP -> {
-            AppPickerDialog(
+            AppAndActionPickerDialog(
                 onDismiss = { configuringActionType = null },
-                onAppSelected = { pkg, name ->
+                onActionSelected = { pkg, appName, actionName, shortcutUri ->
+                    val params = mutableMapOf("packageName" to pkg, "appName" to appName)
+                    if (shortcutUri != null) {
+                        params["shortcutUri"] = shortcutUri
+                        params["shortcutName"] = actionName
+                    }
                     onActionSelected(
                         ActionConfig(
                             type = ActionType.OPEN_APP,
-                            params = mapOf("packageName" to pkg, "appName" to name)
+                            params = params
                         )
                     )
                     configuringActionType = null
@@ -95,6 +100,60 @@ fun ActionPickerSheet(
                             params = mapOf("packageName" to pkg, "appName" to name)
                         )
                     )
+                    configuringActionType = null
+                }
+            )
+        }
+        ActionType.WAIT_DELAY -> {
+            WaitDelayConfigDialog(
+                onDismiss = { configuringActionType = null },
+                onConfirm = { seconds ->
+                    onActionSelected(
+                        ActionConfig(
+                            type = ActionType.WAIT_DELAY,
+                            params = mapOf("seconds" to seconds.toString())
+                        )
+                    )
+                    configuringActionType = null
+                }
+            )
+        }
+        ActionType.RESTRICT_APPS -> {
+            MultiAppPickerDialog(
+                onDismiss = { configuringActionType = null },
+                onConfirm = { pkgs, appNames ->
+                    onActionSelected(
+                        ActionConfig(
+                            type = ActionType.RESTRICT_APPS,
+                            params = mapOf(
+                                "restrictedPackages" to pkgs.joinToString(","),
+                                "appCount" to pkgs.size.toString(),
+                                "appNames" to appNames.joinToString(", ")
+                            )
+                        )
+                    )
+                    configuringActionType = null
+                }
+            )
+        }
+        ActionType.SET_WALLPAPER,
+        ActionType.SET_HOME_WALLPAPER,
+        ActionType.SET_LOCK_WALLPAPER -> {
+            val isLock = configuringActionType == ActionType.SET_LOCK_WALLPAPER
+            val isHome = configuringActionType == ActionType.SET_HOME_WALLPAPER
+            val title = if (isLock) "Lock Screen Wallpaper" else if (isHome) "Home Screen Wallpaper" else "Wallpaper"
+            WallpaperConfigDialog(
+                title = title,
+                onDismiss = { configuringActionType = null },
+                onConfirm = { uriString ->
+                    configuringActionType?.let { type ->
+                        onActionSelected(
+                            ActionConfig(
+                                type = type,
+                                params = mapOf("wallpaperUri" to uriString)
+                            )
+                        )
+                    }
                     configuringActionType = null
                 }
             )
@@ -206,6 +265,11 @@ fun ActionPickerSheet(
                                     ActionType.SET_BRIGHTNESS,
                                     ActionType.OPEN_APP,
                                     ActionType.CLOSE_APP,
+                                    ActionType.WAIT_DELAY,
+                                    ActionType.RESTRICT_APPS,
+                                    ActionType.SET_WALLPAPER,
+                                    ActionType.SET_HOME_WALLPAPER,
+                                    ActionType.SET_LOCK_WALLPAPER,
                                     ActionType.SEND_NOTIFICATION -> {
                                         configuringActionType = type
                                     }

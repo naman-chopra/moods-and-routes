@@ -43,4 +43,16 @@ class RoutineRepository(private val routineDao: RoutineDao) {
     suspend fun setRoutineEnabled(id: Long, enabled: Boolean) {
         routineDao.setEnabled(id, enabled)
     }
+
+    suspend fun setRoutineActive(id: Long, active: Boolean) {
+        routineDao.setActive(id, active)
+    }
+
+    suspend fun setActive(id: Long, active: Boolean) {
+        routineDao.setActive(id, active)
+    }
+
+    suspend fun deactivateAllRoutines() {
+        routineDao.deactivateAll()
+    }
 }

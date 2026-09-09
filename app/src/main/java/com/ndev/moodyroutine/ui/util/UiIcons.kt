@@ -67,7 +67,11 @@ object UiIcons {
             ActionType.SET_BRIGHTNESS -> Icons.Rounded.BrightnessMedium
             ActionType.OPEN_APP -> Icons.AutoMirrored.Rounded.Launch
             ActionType.CLOSE_APP -> Icons.Rounded.Close
+            ActionType.RESTRICT_APPS -> Icons.Rounded.Block
             ActionType.SET_WALLPAPER -> Icons.Rounded.Wallpaper
+            ActionType.SET_HOME_WALLPAPER -> Icons.Rounded.Wallpaper
+            ActionType.SET_LOCK_WALLPAPER -> Icons.Rounded.Lock
+            ActionType.WAIT_DELAY -> Icons.Rounded.HourglassEmpty
             ActionType.TOGGLE_AUTO_ROTATE_ON -> Icons.Rounded.ScreenRotation
             ActionType.TOGGLE_AUTO_ROTATE_OFF -> Icons.Rounded.ScreenLockPortrait
             ActionType.TOGGLE_FLASHLIGHT_ON -> Icons.Rounded.FlashlightOn
@@ -91,6 +95,37 @@ object UiIcons {
         }
     }
 
+    val MODE_ICON_KEYS = listOf(
+        "sleep",
+        "driving",
+        "exercise",
+        "work",
+        "relax",
+        "game",
+        "movie",
+        "music",
+        "book",
+        "school",
+        "code",
+        "home",
+        "coffee",
+        "restaurant",
+        "flight",
+        "park",
+        "shopping",
+        "call",
+        "groups",
+        "focus",
+        "run",
+        "bike",
+        "cleaning",
+        "health",
+        "headphones",
+        "sunny",
+        "shield",
+        "custom"
+    )
+
     fun getModeIcon(iconName: String): ImageVector {
         return when (iconName.lowercase()) {
             "bedtime", "sleep", "night" -> Icons.Rounded.Bedtime
@@ -102,7 +137,94 @@ object UiIcons {
             "theater", "movie" -> Icons.Rounded.Theaters
             "music" -> Icons.Rounded.MusicNote
             "book", "reading" -> Icons.Rounded.MenuBook
-            else -> Icons.Rounded.Palette
+            "school", "study" -> Icons.Rounded.School
+            "code", "coding", "dev" -> Icons.Rounded.Code
+            "home", "house" -> Icons.Rounded.Home
+            "coffee", "cafe" -> Icons.Rounded.Coffee
+            "restaurant", "food", "dining" -> Icons.Rounded.Restaurant
+            "flight", "travel", "plane" -> Icons.Rounded.Flight
+            "park", "nature", "outdoor" -> Icons.Rounded.Park
+            "shopping", "cart", "store" -> Icons.Rounded.ShoppingCart
+            "call", "meeting", "phone" -> Icons.Rounded.PhoneInTalk
+            "groups", "social", "team" -> Icons.Rounded.Groups
+            "focus", "target" -> Icons.Rounded.CenterFocusStrong
+            "run", "running", "walk" -> Icons.Rounded.DirectionsRun
+            "bike", "cycling" -> Icons.Rounded.DirectionsBike
+            "cleaning", "clean" -> Icons.Rounded.CleaningServices
+            "health", "hospital", "medical" -> Icons.Rounded.LocalHospital
+            "meditation" -> Icons.Rounded.SelfImprovement
+            "headphones", "audio" -> Icons.Rounded.Headphones
+            "sunny", "morning", "day" -> Icons.Rounded.WbSunny
+            "shield", "security" -> Icons.Rounded.Shield
+            "palette", "art" -> Icons.Rounded.Palette
+            else -> Icons.Rounded.AutoAwesome
+        }
+    }
+
+    fun getModeDrawableRes(iconName: String): Int {
+        return when (iconName.lowercase()) {
+            "bedtime", "sleep", "night" -> com.ndev.moodyroutine.R.drawable.ic_mode_sleep
+            "car", "driving" -> com.ndev.moodyroutine.R.drawable.ic_mode_driving
+            "fitness", "exercise", "workout", "gym" -> com.ndev.moodyroutine.R.drawable.ic_mode_exercise
+            "spa", "relax" -> com.ndev.moodyroutine.R.drawable.ic_mode_relax
+            "work", "business" -> com.ndev.moodyroutine.R.drawable.ic_mode_work
+            "game", "gaming" -> com.ndev.moodyroutine.R.drawable.ic_mode_game
+            "theater", "movie" -> com.ndev.moodyroutine.R.drawable.ic_mode_movie
+            "music" -> com.ndev.moodyroutine.R.drawable.ic_mode_music
+            "book", "reading" -> com.ndev.moodyroutine.R.drawable.ic_mode_book
+            "school", "study" -> com.ndev.moodyroutine.R.drawable.ic_mode_school
+            "code", "coding", "dev" -> com.ndev.moodyroutine.R.drawable.ic_mode_code
+            "home", "house" -> com.ndev.moodyroutine.R.drawable.ic_mode_home
+            "coffee", "cafe" -> com.ndev.moodyroutine.R.drawable.ic_mode_coffee
+            "restaurant", "food", "dining" -> com.ndev.moodyroutine.R.drawable.ic_mode_restaurant
+            "flight", "travel", "plane" -> com.ndev.moodyroutine.R.drawable.ic_mode_flight
+            "park", "nature", "outdoor" -> com.ndev.moodyroutine.R.drawable.ic_mode_park
+            "shopping", "cart", "store" -> com.ndev.moodyroutine.R.drawable.ic_mode_shopping
+            "call", "meeting", "phone" -> com.ndev.moodyroutine.R.drawable.ic_mode_call
+            "groups", "social", "team" -> com.ndev.moodyroutine.R.drawable.ic_mode_groups
+            "focus", "target" -> com.ndev.moodyroutine.R.drawable.ic_mode_focus
+            "run", "running", "walk" -> com.ndev.moodyroutine.R.drawable.ic_mode_run
+            "bike", "cycling" -> com.ndev.moodyroutine.R.drawable.ic_mode_bike
+            "cleaning", "clean" -> com.ndev.moodyroutine.R.drawable.ic_mode_cleaning
+            "health", "hospital", "medical" -> com.ndev.moodyroutine.R.drawable.ic_mode_health
+            "meditation" -> com.ndev.moodyroutine.R.drawable.ic_mode_meditation
+            "headphones", "audio" -> com.ndev.moodyroutine.R.drawable.ic_mode_headphones
+            "sunny", "morning", "day" -> com.ndev.moodyroutine.R.drawable.ic_mode_sunny
+            "shield", "security" -> com.ndev.moodyroutine.R.drawable.ic_mode_shield
+            "palette", "art" -> com.ndev.moodyroutine.R.drawable.ic_mode_palette
+            else -> com.ndev.moodyroutine.R.drawable.ic_mode_custom
+        }
+    }
+
+    fun getModeLargeIconBitmap(context: android.content.Context, iconName: String, colorHex: String): android.graphics.Bitmap? {
+        return try {
+            val drawableId = getModeDrawableRes(iconName)
+            val drawable = androidx.core.content.ContextCompat.getDrawable(context, drawableId) ?: return null
+            val density = context.resources.displayMetrics.density
+            val sizePx = (56 * density).toInt().coerceAtLeast(112)
+            val bitmap = android.graphics.Bitmap.createBitmap(sizePx, sizePx, android.graphics.Bitmap.Config.ARGB_8888)
+            val canvas = android.graphics.Canvas(bitmap)
+
+            val color = try {
+                android.graphics.Color.parseColor(colorHex)
+            } catch (_: Exception) {
+                0xFF3B82F6.toInt()
+            }
+
+            val bgPaint = android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG).apply {
+                this.color = color
+                style = android.graphics.Paint.Style.FILL
+            }
+            canvas.drawCircle(sizePx / 2f, sizePx / 2f, sizePx / 2f, bgPaint)
+
+            drawable.setTint(android.graphics.Color.WHITE)
+            val padding = (sizePx * 0.22f).toInt()
+            drawable.setBounds(padding, padding, sizePx - padding, sizePx - padding)
+            drawable.draw(canvas)
+
+            bitmap
+        } catch (e: Exception) {
+            null
         }
     }
 }

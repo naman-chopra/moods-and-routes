@@ -18,6 +18,8 @@ data class Routine(
     val description: String = "",
     val iconName: String = "AutoAwesome",
     val isEnabled: Boolean = true,
+    val isActive: Boolean = false,
+    val revertActionsOnExit: Boolean = true,
     val triggers: List<TriggerConfig>,
     val actions: List<ActionConfig>,
     val triggerMatchType: TriggerMatchType = TriggerMatchType.ANY,
@@ -35,5 +37,6 @@ data class Mode(
     val isActive: Boolean = false,
     val actions: List<ActionConfig>,
     val autoTriggers: List<TriggerConfig> = emptyList(),
+    val revertActionsOnExit: Boolean = true,
     val createdAt: Long = System.currentTimeMillis()
 )

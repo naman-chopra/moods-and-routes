@@ -1,5 +1,6 @@
 package com.ndev.moodyroutine.data.db.entity
 
+import androidx.room.ColumnInfo
 import androidx.room.Entity
 import androidx.room.PrimaryKey
 import com.ndev.moodyroutine.data.model.ActionConfig
@@ -18,6 +19,8 @@ data class ModeEntity(
     val isActive: Boolean = false,
     val actions: List<ActionConfig>,
     val autoTriggers: List<TriggerConfig>,
+    @ColumnInfo(defaultValue = "1")
+    val revertActionsOnExit: Boolean = true,
     val createdAt: Long
 ) {
     fun toDomainModel() = Mode(
@@ -30,6 +33,7 @@ data class ModeEntity(
         isActive = isActive,
         actions = actions,
         autoTriggers = autoTriggers,
+        revertActionsOnExit = revertActionsOnExit,
         createdAt = createdAt
     )
 
@@ -44,6 +48,7 @@ data class ModeEntity(
             isActive = mode.isActive,
             actions = mode.actions,
             autoTriggers = mode.autoTriggers,
+            revertActionsOnExit = mode.revertActionsOnExit,
             createdAt = mode.createdAt
         )
     }

@@ -86,13 +86,28 @@ object HumanFormatter {
             ActionType.SET_BRIGHTNESS -> "Set to ${action.params["brightness"] ?: "50"}%"
             ActionType.OPEN_APP -> {
                 val app = action.params["appName"] ?: action.params["packageName"] ?: "Selected app"
-                "Open $app"
+                val shortcutName = action.params["shortcutName"]
+                if (!shortcutName.isNullOrBlank()) {
+                    "$shortcutName ($app)"
+                } else {
+                    "Open $app"
+                }
             }
             ActionType.CLOSE_APP -> {
                 val app = action.params["appName"] ?: action.params["packageName"] ?: "Selected app"
                 "Close $app"
             }
+            ActionType.RESTRICT_APPS -> {
+                val count = action.params["appCount"] ?: action.params["restrictedPackages"]?.split(",")?.filter { it.isNotBlank() }?.size?.toString() ?: "0"
+                "Restrict $count selected app(s)"
+            }
             ActionType.SET_WALLPAPER -> "Change wallpaper"
+            ActionType.SET_HOME_WALLPAPER -> "Change Home screen wallpaper"
+            ActionType.SET_LOCK_WALLPAPER -> "Change Lock screen wallpaper"
+            ActionType.WAIT_DELAY -> {
+                val sec = action.params["seconds"] ?: "5"
+                "Wait $sec sec before next action"
+            }
             ActionType.TOGGLE_AUTO_ROTATE_ON -> "Turn on"
             ActionType.TOGGLE_AUTO_ROTATE_OFF -> "Turn off"
             ActionType.TOGGLE_FLASHLIGHT_ON -> "Turn on"

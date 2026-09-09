@@ -4,8 +4,8 @@ import android.annotation.SuppressLint
 import android.content.Context
 import android.location.Location
 import android.os.Looper
-import android.util.Log
 import com.google.android.gms.location.*
+import com.ndev.moodyroutine.util.AppLogger
 import com.ndev.moodyroutine.data.model.Mode
 import com.ndev.moodyroutine.data.model.Routine
 import com.ndev.moodyroutine.data.model.TriggerType
@@ -90,7 +90,7 @@ class LocationTracker(private val context: Context) {
         }
 
         targets = newTargets
-        Log.i("MoodyRoutine", "LocationTracker targets updated: ${targets.size} active targets")
+        AppLogger.i("LocationTracker", "LocationTracker targets updated: ${targets.size} active targets")
 
         if (targets.isNotEmpty() && !isTracking) {
             startTracking()
@@ -117,14 +117,14 @@ class LocationTracker(private val context: Context) {
                 Looper.getMainLooper()
             )
             isTracking = true
-            Log.i("MoodyRoutine", "LocationTracker started updates (interval: 30s)")
+            AppLogger.i("LocationTracker", "LocationTracker started updates (interval: 30s)")
 
             // Immediate check with last location
             fusedLocationClient.lastLocation.addOnSuccessListener { loc ->
                 if (loc != null) checkLocation(loc)
             }
         } catch (e: SecurityException) {
-            Log.e("MoodyRoutine", "Location permission missing in LocationTracker", e)
+            AppLogger.e("LocationTracker", "Location permission missing in LocationTracker", e)
         }
     }
 
@@ -132,7 +132,7 @@ class LocationTracker(private val context: Context) {
         if (!isTracking) return
         fusedLocationClient.removeLocationUpdates(locationCallback)
         isTracking = false
-        Log.i("MoodyRoutine", "LocationTracker stopped")
+        AppLogger.i("LocationTracker", "LocationTracker stopped")
     }
 
     private fun checkLocation(currentLocation: Location) {
@@ -151,7 +151,7 @@ class LocationTracker(private val context: Context) {
 
             if (isInside && !wasInside) {
                 insideTargets.add(target.id)
-                Log.i("MoodyRoutine", "LocationTracker: ENTERED ${target.name} (dist=${distance.toInt()}m <= ${target.radiusMeters.toInt()}m)")
+                AppLogger.i("LocationTracker", "LocationTracker: ENTERED ${target.name} (dist=${distance.toInt()}m <= ${target.radiusMeters.toInt()}m)")
                 scope.launch {
                     EventBus.emit(
                         AutomationEvent.LocationEvent(
@@ -164,7 +164,7 @@ class LocationTracker(private val context: Context) {
                 }
             } else if (!isInside && wasInside) {
                 insideTargets.remove(target.id)
-                Log.i("MoodyRoutine", "LocationTracker: EXITED ${target.name} (dist=${distance.toInt()}m > ${target.radiusMeters.toInt()}m)")
+                AppLogger.i("LocationTracker", "LocationTracker: EXITED ${target.name} (dist=${distance.toInt()}m > ${target.radiusMeters.toInt()}m)")
                 scope.launch {
                     EventBus.emit(
                         AutomationEvent.LocationEvent(

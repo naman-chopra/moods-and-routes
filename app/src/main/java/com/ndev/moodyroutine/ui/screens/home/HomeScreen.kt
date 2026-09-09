@@ -17,6 +17,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -27,7 +28,10 @@ import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.navigation.NavController
 import com.ndev.moodyroutine.data.model.Mode
 import com.ndev.moodyroutine.data.model.Routine
+import com.ndev.moodyroutine.ui.components.MoodyBottomBar
+import com.ndev.moodyroutine.ui.components.MoodyTab
 import com.ndev.moodyroutine.ui.navigation.Screen
+import com.ndev.moodyroutine.ui.screens.settings.SettingsContent
 import com.ndev.moodyroutine.ui.util.HumanFormatter
 import com.ndev.moodyroutine.ui.util.UiIcons
 
@@ -37,7 +41,7 @@ fun HomeScreen(
     navController: NavController,
     viewModel: HomeViewModel = viewModel()
 ) {
-    var selectedTabIndex by remember { mutableIntStateOf(0) }
+    var currentTab by rememberSaveable { mutableStateOf(MoodyTab.MODES) }
     val modes by viewModel.modes.collectAsState()
     val routines by viewModel.routines.collectAsState()
 
@@ -45,19 +49,31 @@ fun HomeScreen(
     var selectedRoutineIds by remember { mutableStateOf(setOf<Long>()) }
     var showDeleteConfirm by remember { mutableStateOf(false) }
 
-    val isSelectionMode = if (selectedTabIndex == 0) selectedModeIds.isNotEmpty() else selectedRoutineIds.isNotEmpty()
-    val currentSelectedCount = if (selectedTabIndex == 0) selectedModeIds.size else selectedRoutineIds.size
-    val allCurrentIds = if (selectedTabIndex == 0) modes.map { it.id }.toSet() else routines.map { it.id }.toSet()
+    val isSelectionMode = when (currentTab) {
+        MoodyTab.MODES -> selectedModeIds.isNotEmpty()
+        MoodyTab.ROUTINES -> selectedRoutineIds.isNotEmpty()
+        MoodyTab.SETTINGS -> false
+    }
+    val currentSelectedCount = when (currentTab) {
+        MoodyTab.MODES -> selectedModeIds.size
+        MoodyTab.ROUTINES -> selectedRoutineIds.size
+        MoodyTab.SETTINGS -> 0
+    }
+    val allCurrentIds = when (currentTab) {
+        MoodyTab.MODES -> modes.map { it.id }.toSet()
+        MoodyTab.ROUTINES -> routines.map { it.id }.toSet()
+        MoodyTab.SETTINGS -> emptySet()
+    }
     val isAllSelected = allCurrentIds.isNotEmpty() && currentSelectedCount == allCurrentIds.size
 
     // Clear selection when changing tabs
-    LaunchedEffect(selectedTabIndex) {
+    LaunchedEffect(currentTab) {
         selectedModeIds = emptySet()
         selectedRoutineIds = emptySet()
     }
 
     if (showDeleteConfirm) {
-        val itemType = if (selectedTabIndex == 0) "mode" else "routine"
+        val itemType = if (currentTab == MoodyTab.MODES) "mode" else "routine"
         val count = currentSelectedCount
         AlertDialog(
             onDismissRequest = { showDeleteConfirm = false },
@@ -67,7 +83,7 @@ fun HomeScreen(
             confirmButton = {
                 Button(
                     onClick = {
-                        if (selectedTabIndex == 0) {
+                        if (currentTab == MoodyTab.MODES) {
                             viewModel.bulkDeleteModes(selectedModeIds)
                             selectedModeIds = emptySet()
                         } else {
@@ -95,7 +111,12 @@ fun HomeScreen(
             TopAppBar(
                 title = {
                     Text(
-                        text = if (isSelectionMode) "$currentSelectedCount selected" else "Modes and Routines",
+                        text = when {
+                            isSelectionMode -> "$currentSelectedCount selected"
+                            currentTab == MoodyTab.MODES -> "Modes"
+                            currentTab == MoodyTab.ROUTINES -> "Routines"
+                            else -> "Settings"
+                        },
                         style = MaterialTheme.typography.headlineMedium,
                         fontWeight = FontWeight.Bold
                     )
@@ -113,7 +134,7 @@ fun HomeScreen(
                 actions = {
                     if (isSelectionMode) {
                         TextButton(onClick = {
-                            if (selectedTabIndex == 0) {
+                            if (currentTab == MoodyTab.MODES) {
                                 selectedModeIds = if (isAllSelected) emptySet() else allCurrentIds
                             } else {
                                 selectedRoutineIds = if (isAllSelected) emptySet() else allCurrentIds
@@ -124,10 +145,6 @@ fun HomeScreen(
                                 fontWeight = FontWeight.SemiBold
                             )
                         }
-                    } else {
-                        IconButton(onClick = { navController.navigate(Screen.Settings.route) }) {
-                            Icon(Icons.Rounded.Settings, contentDescription = "Settings")
-                        }
                     }
                 },
                 colors = TopAppBarDefaults.topAppBarColors(
@@ -135,11 +152,19 @@ fun HomeScreen(
                 )
             )
         },
-        floatingActionButton = {
+        bottomBar = {
             if (!isSelectionMode) {
+                MoodyBottomBar(
+                    currentTab = currentTab,
+                    onTabSelected = { currentTab = it }
+                )
+            }
+        },
+        floatingActionButton = {
+            if (!isSelectionMode && currentTab != MoodyTab.SETTINGS) {
                 FloatingActionButton(
                     onClick = {
-                        if (selectedTabIndex == 0) {
+                        if (currentTab == MoodyTab.MODES) {
                             navController.navigate(Screen.ModeCreate.createRoute())
                         } else {
                             navController.navigate(Screen.RoutineCreate.createRoute())
@@ -159,41 +184,8 @@ fun HomeScreen(
                 .padding(padding)
                 .fillMaxSize()
         ) {
-            Column(modifier = Modifier.fillMaxSize()) {
-                // Samsung One UI Tab Switcher
-                PrimaryTabRow(
-                    selectedTabIndex = selectedTabIndex,
-                    containerColor = MaterialTheme.colorScheme.background,
-                    contentColor = MaterialTheme.colorScheme.primary,
-                    divider = {}
-                ) {
-                    Tab(
-                        selected = selectedTabIndex == 0,
-                        onClick = { selectedTabIndex = 0 },
-                        text = {
-                            Text(
-                                text = "Modes",
-                                style = MaterialTheme.typography.titleMedium,
-                                fontWeight = if (selectedTabIndex == 0) FontWeight.Bold else FontWeight.Medium
-                            )
-                        }
-                    )
-                    Tab(
-                        selected = selectedTabIndex == 1,
-                        onClick = { selectedTabIndex = 1 },
-                        text = {
-                            Text(
-                                text = "Routines",
-                                style = MaterialTheme.typography.titleMedium,
-                                fontWeight = if (selectedTabIndex == 1) FontWeight.Bold else FontWeight.Medium
-                            )
-                        }
-                    )
-                }
-
-                Spacer(modifier = Modifier.height(8.dp))
-
-                if (selectedTabIndex == 0) {
+            when (currentTab) {
+                MoodyTab.MODES -> {
                     ModesTabContent(
                         modes = modes,
                         selectedIds = selectedModeIds,
@@ -209,7 +201,8 @@ fun HomeScreen(
                         },
                         onModeToggle = { mode, enabled -> viewModel.toggleModeEnabled(mode.id, enabled) }
                     )
-                } else {
+                }
+                MoodyTab.ROUTINES -> {
                     RoutinesTabContent(
                         routines = routines,
                         selectedIds = selectedRoutineIds,
@@ -225,6 +218,12 @@ fun HomeScreen(
                         },
                         onRoutineToggle = { routine, enabled -> viewModel.toggleRoutineEnabled(routine.id, enabled) },
                         onAddRoutineClick = { navController.navigate(Screen.RoutineCreate.createRoute()) }
+                    )
+                }
+                MoodyTab.SETTINGS -> {
+                    SettingsContent(
+                        modifier = Modifier.fillMaxSize(),
+                        onNavigateToLogs = { navController.navigate(Screen.DiagnosticLogs.route) }
                     )
                 }
             }
@@ -256,7 +255,7 @@ fun HomeScreen(
                         // Enable Button
                         TextButton(
                             onClick = {
-                                if (selectedTabIndex == 0) {
+                                if (currentTab == MoodyTab.MODES) {
                                     viewModel.bulkToggleModesEnabled(selectedModeIds, true)
                                     selectedModeIds = emptySet()
                                 } else {
@@ -274,7 +273,7 @@ fun HomeScreen(
                         // Disable Button
                         TextButton(
                             onClick = {
-                                if (selectedTabIndex == 0) {
+                                if (currentTab == MoodyTab.MODES) {
                                     viewModel.bulkToggleModesEnabled(selectedModeIds, false)
                                     selectedModeIds = emptySet()
                                 } else {
@@ -408,16 +407,18 @@ fun ModesTabContent(
                             mode.isActive -> "Active"
                             !mode.isEnabled -> "Disabled"
                             mode.description.isNotBlank() -> mode.description
-                            else -> "Turned on automatically"
+                            else -> ""
                         }
 
-                        Text(
-                            text = subtitleText,
-                            style = MaterialTheme.typography.bodySmall,
-                            color = if (mode.isActive) Color(0xFF10B981) else if (!mode.isEnabled) MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f) else MaterialTheme.colorScheme.onSurfaceVariant,
-                            fontWeight = if (mode.isActive) FontWeight.SemiBold else FontWeight.Normal,
-                            maxLines = 1
-                        )
+                        if (subtitleText.isNotBlank()) {
+                            Text(
+                                text = subtitleText,
+                                style = MaterialTheme.typography.bodySmall,
+                                color = if (mode.isActive) Color(0xFF10B981) else if (!mode.isEnabled) MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f) else MaterialTheme.colorScheme.onSurfaceVariant,
+                                fontWeight = if (mode.isActive) FontWeight.SemiBold else FontWeight.Normal,
+                                maxLines = 1
+                            )
+                        }
                     }
 
                     if (!isSelectionActive) {
@@ -582,12 +583,32 @@ fun RoutinesTabContent(
                         Spacer(modifier = Modifier.width(16.dp))
 
                         Column(modifier = Modifier.weight(1f)) {
-                            Text(
-                                text = routine.name,
-                                style = MaterialTheme.typography.titleMedium,
-                                fontWeight = FontWeight.Bold
-                            )
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Text(
+                                    text = routine.name,
+                                    style = MaterialTheme.typography.titleMedium,
+                                    fontWeight = FontWeight.Bold
+                                )
+                                if (routine.isActive) {
+                                    Spacer(modifier = Modifier.width(8.dp))
+                                    Box(
+                                        modifier = Modifier
+                                            .size(10.dp)
+                                            .clip(CircleShape)
+                                            .background(Color(0xFF10B981))
+                                    )
+                                }
+                            }
                             Spacer(modifier = Modifier.height(2.dp))
+                            if (routine.isActive) {
+                                Text(
+                                    text = "Active",
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = Color(0xFF10B981),
+                                    fontWeight = FontWeight.SemiBold,
+                                    maxLines = 1
+                                )
+                            }
                             Text(
                                 text = "If $triggerSummary",
                                 style = MaterialTheme.typography.bodySmall,

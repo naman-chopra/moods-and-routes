@@ -3,6 +3,8 @@ package com.ndev.moodyroutine.ui.screens.settings
 import android.Manifest
 import android.app.AppOpsManager
 import android.app.NotificationManager
+import android.content.ClipData
+import android.content.ClipboardManager
 import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
@@ -11,12 +13,21 @@ import android.os.Build
 import android.os.PowerManager
 import android.os.Process
 import android.provider.Settings
+import android.widget.Toast
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.ArrowBack
 import androidx.compose.material.icons.automirrored.rounded.KeyboardArrowRight
@@ -29,20 +40,117 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
+import androidx.compose.ui.window.Dialog
+import androidx.compose.ui.window.DialogProperties
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.navigation.NavController
 import com.ndev.moodyroutine.service.AutomationService
+import com.ndev.moodyroutine.ui.navigation.Screen
+import com.ndev.moodyroutine.util.AppLogger
+import com.ndev.moodyroutine.util.BackupManager
+import com.ndev.moodyroutine.util.BackupPayload
+import com.ndev.moodyroutine.util.PreferencesManager
+import kotlinx.coroutines.launch
+import java.text.SimpleDateFormat
+import java.util.Date
+import java.util.Locale
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun SettingsScreen(navController: NavController) {
+fun SettingsScreen(
+    navController: NavController? = null,
+    showTopBar: Boolean = true
+) {
+    val onNavigateToLogs: () -> Unit = {
+        navController?.navigate(Screen.DiagnosticLogs.route)
+    }
+
+    if (showTopBar) {
+        Scaffold(
+            containerColor = MaterialTheme.colorScheme.background,
+            topBar = {
+                TopAppBar(
+                    title = { Text("Settings", fontWeight = FontWeight.Bold) },
+                    navigationIcon = {
+                        if (navController != null) {
+                            IconButton(onClick = { navController.popBackStack() }) {
+                                Icon(Icons.AutoMirrored.Rounded.ArrowBack, contentDescription = "Back")
+                            }
+                        }
+                    },
+                    colors = TopAppBarDefaults.topAppBarColors(
+                        containerColor = MaterialTheme.colorScheme.background
+                    )
+                )
+            }
+        ) { padding ->
+            SettingsContent(
+                modifier = Modifier.padding(padding),
+                onNavigateToLogs = onNavigateToLogs
+            )
+        }
+    } else {
+        SettingsContent(
+            modifier = Modifier.fillMaxSize(),
+            onNavigateToLogs = onNavigateToLogs
+        )
+    }
+}
+
+@Composable
+fun SettingsContent(
+    modifier: Modifier = Modifier,
+    onNavigateToLogs: () -> Unit = {}
+) {
     val context = LocalContext.current
+    val coroutineScope = rememberCoroutineScope()
+
     var isServiceRunning by remember { mutableStateOf(true) }
+
+
+    var pendingImportPayload by remember { mutableStateOf<BackupPayload?>(null) }
+    var showImportConfirmDialog by remember { mutableStateOf(false) }
+
+    val exportLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.CreateDocument("application/json")
+    ) { uri ->
+        if (uri != null) {
+            coroutineScope.launch {
+                val result = BackupManager.exportBackup(context, uri)
+                result.onSuccess { msg ->
+                    Toast.makeText(context, msg, Toast.LENGTH_LONG).show()
+                }.onFailure { e ->
+                    Toast.makeText(context, "Export failed: ${e.message}", Toast.LENGTH_LONG).show()
+                }
+            }
+        }
+    }
+
+    val importLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.OpenDocument()
+    ) { uri ->
+        if (uri != null) {
+            coroutineScope.launch {
+                val result = BackupManager.readBackupPayload(context, uri)
+                result.onSuccess { payload ->
+                    pendingImportPayload = payload
+                    showImportConfirmDialog = true
+                }.onFailure { e ->
+                    Toast.makeText(context, "Failed to read backup: ${e.message}", Toast.LENGTH_LONG).show()
+                }
+            }
+        }
+    }
+
+    val isDebugLogsEnabled by PreferencesManager.isDebugLogsEnabled.collectAsState()
 
     val powerManager = context.getSystemService(PowerManager::class.java)
     val isBatteryOptimized = powerManager?.isIgnoringBatteryOptimizations(context.packageName) != true
@@ -103,108 +211,391 @@ fun SettingsScreen(navController: NavController) {
         }
     }
 
-    Scaffold(
-        containerColor = MaterialTheme.colorScheme.background,
-        topBar = {
-            TopAppBar(
-                title = { Text("Settings", fontWeight = FontWeight.Bold) },
-                navigationIcon = {
-                    IconButton(onClick = { navController.popBackStack() }) {
-                        Icon(Icons.AutoMirrored.Rounded.ArrowBack, contentDescription = "Back")
-                    }
-                },
-                colors = TopAppBarDefaults.topAppBarColors(
-                    containerColor = MaterialTheme.colorScheme.background
+    if (showImportConfirmDialog && pendingImportPayload != null) {
+        val payload = pendingImportPayload!!
+        AlertDialog(
+            onDismissRequest = {
+                showImportConfirmDialog = false
+                pendingImportPayload = null
+            },
+            icon = {
+                Icon(
+                    Icons.Rounded.CloudDownload,
+                    contentDescription = null,
+                    tint = MaterialTheme.colorScheme.primary,
+                    modifier = Modifier.size(32.dp)
                 )
-            )
-        }
-    ) { padding ->
-        LazyColumn(
-            modifier = Modifier
-                .padding(padding)
-                .fillMaxSize()
-                .padding(horizontal = 20.dp),
-            verticalArrangement = Arrangement.spacedBy(16.dp),
-            contentPadding = PaddingValues(vertical = 16.dp)
-        ) {
-            // Service Status Card
-            item {
-                Surface(
-                    shape = RoundedCornerShape(22.dp),
-                    color = MaterialTheme.colorScheme.surface,
-                    tonalElevation = 2.dp,
-                    modifier = Modifier.fillMaxWidth()
-                ) {
-                    Row(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(18.dp),
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Box(
-                            modifier = Modifier
-                                .size(46.dp)
-                                .clip(RoundedCornerShape(14.dp))
-                                .background(MaterialTheme.colorScheme.primary.copy(alpha = 0.15f)),
-                            contentAlignment = Alignment.Center
-                        ) {
-                            Icon(
-                                Icons.Rounded.Sync,
-                                contentDescription = null,
-                                tint = MaterialTheme.colorScheme.primary,
-                                modifier = Modifier.size(26.dp)
-                            )
-                        }
-
-                        Spacer(modifier = Modifier.width(16.dp))
-
-                        Column(modifier = Modifier.weight(1f)) {
-                            Text("Automation Service", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
-                            Text(
-                                if (isServiceRunning) "Running in background" else "Paused",
-                                style = MaterialTheme.typography.bodySmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant
-                            )
-                        }
-
-                        Switch(
-                            checked = isServiceRunning,
-                            onCheckedChange = { enabled ->
-                                isServiceRunning = enabled
-                                val intent = Intent(context, AutomationService::class.java)
-                                if (enabled) {
-                                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-                                        context.startForegroundService(intent)
-                                    } else {
-                                        context.startService(intent)
-                                    }
-                                } else {
-                                    context.stopService(intent)
-                                }
+            },
+            title = {
+                Text("Import Config", fontWeight = FontWeight.Bold)
+            },
+            text = {
+                Text(
+                    "Found ${payload.modes.size} mode(s) and ${payload.routines.size} routine(s) in this config file.\n\nChoose an import action:",
+                    style = MaterialTheme.typography.bodyMedium
+                )
+            },
+            confirmButton = {
+                Button(
+                    onClick = {
+                        coroutineScope.launch {
+                            val res = BackupManager.importBackup(context, payload, overwrite = false)
+                            res.onSuccess { msg ->
+                                Toast.makeText(context, "$msg (Merged)", Toast.LENGTH_SHORT).show()
+                            }.onFailure { e ->
+                                Toast.makeText(context, "Import failed: ${e.message}", Toast.LENGTH_LONG).show()
                             }
-                        )
+                            showImportConfirmDialog = false
+                            pendingImportPayload = null
+                        }
+                    }
+                ) {
+                    Text("Merge (Keep Existing)")
+                }
+            },
+            dismissButton = {
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    TextButton(
+                        onClick = {
+                            showImportConfirmDialog = false
+                            pendingImportPayload = null
+                        }
+                    ) {
+                        Text("Cancel")
+                    }
+                    Button(
+                        onClick = {
+                            coroutineScope.launch {
+                                val res = BackupManager.importBackup(context, payload, overwrite = true)
+                                res.onSuccess { msg ->
+                                    Toast.makeText(context, "$msg (Replaced)", Toast.LENGTH_SHORT).show()
+                                }.onFailure { e ->
+                                    Toast.makeText(context, "Import failed: ${e.message}", Toast.LENGTH_LONG).show()
+                                }
+                                showImportConfirmDialog = false
+                                pendingImportPayload = null
+                            }
+                        },
+                        colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.error)
+                    ) {
+                        Text("Replace All")
                     }
                 }
             }
+        )
+    }
 
-            // Battery Optimization Section
-            item {
-                Surface(
-                    shape = RoundedCornerShape(22.dp),
-                    color = MaterialTheme.colorScheme.surface,
-                    tonalElevation = 2.dp,
+    LazyColumn(
+        modifier = modifier
+            .fillMaxSize()
+            .padding(horizontal = 20.dp),
+        verticalArrangement = Arrangement.spacedBy(16.dp),
+        contentPadding = PaddingValues(vertical = 16.dp)
+    ) {
+        // Service Status Card
+        item {
+            Surface(
+                shape = RoundedCornerShape(22.dp),
+                color = MaterialTheme.colorScheme.surface,
+                tonalElevation = 2.dp,
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Row(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .clip(RoundedCornerShape(22.dp))
-                        .clickable {
-                            val intent = Intent(Settings.ACTION_IGNORE_BATTERY_OPTIMIZATION_SETTINGS)
-                            context.startActivity(intent)
+                        .padding(18.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Box(
+                        modifier = Modifier
+                            .size(46.dp)
+                            .clip(RoundedCornerShape(14.dp))
+                            .background(MaterialTheme.colorScheme.primary.copy(alpha = 0.15f)),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Icon(
+                            Icons.Rounded.Sync,
+                            contentDescription = null,
+                            tint = MaterialTheme.colorScheme.primary,
+                            modifier = Modifier.size(26.dp)
+                        )
+                    }
+
+                    Spacer(modifier = Modifier.width(16.dp))
+
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text("Automation Service", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
+                        Text(
+                            if (isServiceRunning) "Running in background" else "Paused",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+
+                    Switch(
+                        checked = isServiceRunning,
+                        onCheckedChange = { enabled ->
+                            isServiceRunning = enabled
+                            val intent = Intent(context, AutomationService::class.java)
+                            if (enabled) {
+                                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                                    context.startForegroundService(intent)
+                                } else {
+                                    context.startService(intent)
+                                }
+                            } else {
+                                context.stopService(intent)
+                            }
                         }
+                    )
+                }
+            }
+        }
+
+        // Battery Optimization Section
+        item {
+            Surface(
+                shape = RoundedCornerShape(22.dp),
+                color = MaterialTheme.colorScheme.surface,
+                tonalElevation = 2.dp,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clip(RoundedCornerShape(22.dp))
+                    .clickable {
+                        val intent = Intent(Settings.ACTION_IGNORE_BATTERY_OPTIMIZATION_SETTINGS)
+                        context.startActivity(intent)
+                    }
+            ) {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(18.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Box(
+                        modifier = Modifier
+                            .size(46.dp)
+                            .clip(RoundedCornerShape(14.dp))
+                            .background(
+                                if (isBatteryOptimized) MaterialTheme.colorScheme.error.copy(alpha = 0.15f)
+                                else MaterialTheme.colorScheme.primary.copy(alpha = 0.15f)
+                            ),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Icon(
+                            Icons.Rounded.BatteryAlert,
+                            contentDescription = null,
+                            tint = if (isBatteryOptimized) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.primary,
+                            modifier = Modifier.size(26.dp)
+                        )
+                    }
+
+                    Spacer(modifier = Modifier.width(16.dp))
+
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text("Battery Optimization", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
+                        Text(
+                            if (isBatteryOptimized) "Optimized (may delay triggers). Tap to exclude." else "Unrestricted (recommended)",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = if (isBatteryOptimized) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+
+                    Icon(
+                        Icons.AutoMirrored.Rounded.KeyboardArrowRight,
+                        contentDescription = null,
+                        tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f)
+                    )
+                }
+            }
+        }
+
+        // Required Permissions
+        item {
+            Text(
+                "Required Permissions",
+                style = MaterialTheme.typography.titleSmall,
+                color = MaterialTheme.colorScheme.primary,
+                fontWeight = FontWeight.Bold,
+                modifier = Modifier.padding(horizontal = 4.dp, vertical = 4.dp)
+            )
+        }
+
+        item {
+            PermissionStatusCard(
+                title = "Background Location",
+                description = if (isBackgroundLocationGranted) "Location triggers active in background" else "Set location permission to 'Allow all the time'",
+                icon = Icons.Rounded.LocationOn,
+                isGranted = isBackgroundLocationGranted,
+                onClick = {
+                    val intent = Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS).apply {
+                        data = Uri.fromParts("package", context.packageName, null)
+                    }
+                    context.startActivity(intent)
+                }
+            )
+        }
+
+        item {
+            PermissionStatusCard(
+                title = "Modify System Settings",
+                description = if (isWriteSettingsGranted) "Brightness and auto-rotate actions enabled" else "Tap to grant permission to modify system settings",
+                icon = Icons.Rounded.Tune,
+                isGranted = isWriteSettingsGranted,
+                onClick = {
+                    val intent = Intent(Settings.ACTION_MANAGE_WRITE_SETTINGS).apply {
+                        data = Uri.parse("package:${context.packageName}")
+                    }
+                    context.startActivity(intent)
+                }
+            )
+        }
+
+        item {
+            PermissionStatusCard(
+                title = "Do Not Disturb Access",
+                description = if (isDndAccessGranted) "Silent, vibrate & DND actions enabled" else "Tap to allow MoodyRoutine notification policy access",
+                icon = Icons.Rounded.DoNotDisturbOn,
+                isGranted = isDndAccessGranted,
+                onClick = {
+                    val intent = Intent(Settings.ACTION_NOTIFICATION_POLICY_ACCESS_SETTINGS)
+                    context.startActivity(intent)
+                }
+            )
+        }
+
+        item {
+            PermissionStatusCard(
+                title = "Usage Access",
+                description = if (isUsageAccessGranted) "App opened & closed triggers enabled" else "Tap to grant usage access for app triggers",
+                icon = Icons.Rounded.Apps,
+                isGranted = isUsageAccessGranted,
+                onClick = {
+                    val intent = Intent(Settings.ACTION_USAGE_ACCESS_SETTINGS)
+                    context.startActivity(intent)
+                }
+            )
+        }
+
+        // Backup & Restore Section
+        item {
+            Text(
+                "Backup & Restore",
+                style = MaterialTheme.typography.titleSmall,
+                color = MaterialTheme.colorScheme.primary,
+                fontWeight = FontWeight.Bold,
+                modifier = Modifier.padding(horizontal = 4.dp, vertical = 4.dp)
+            )
+        }
+
+        item {
+            Surface(
+                shape = RoundedCornerShape(22.dp),
+                color = MaterialTheme.colorScheme.surface,
+                tonalElevation = 2.dp,
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(18.dp),
+                    verticalArrangement = Arrangement.spacedBy(12.dp)
+                ) {
+                    Text(
+                        "Export or import all your modes and routines as a JSON config file to easily transfer them to another device.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(12.dp)
+                    ) {
+                        Button(
+                            onClick = {
+                                val dateStr = SimpleDateFormat("yyyyMMdd_HHmmss", Locale.getDefault()).format(Date())
+                                exportLauncher.launch("moodyroutine_backup_$dateStr.json")
+                            },
+                            colors = ButtonDefaults.buttonColors(
+                                containerColor = MaterialTheme.colorScheme.surfaceVariant,
+                                contentColor = MaterialTheme.colorScheme.onSurface
+                            ),
+                            shape = RoundedCornerShape(14.dp),
+                            contentPadding = PaddingValues(horizontal = 8.dp, vertical = 12.dp),
+                            modifier = Modifier.weight(1f)
+                        ) {
+                            Icon(
+                                Icons.Rounded.CloudUpload,
+                                contentDescription = null,
+                                tint = MaterialTheme.colorScheme.primary,
+                                modifier = Modifier.size(18.dp)
+                            )
+                            Spacer(Modifier.width(6.dp))
+                            Text(
+                                "Export Config",
+                                fontSize = 13.sp,
+                                fontWeight = FontWeight.SemiBold,
+                                maxLines = 1
+                            )
+                        }
+
+                        Button(
+                            onClick = {
+                                importLauncher.launch(arrayOf("application/json", "text/plain", "*/*"))
+                            },
+                            colors = ButtonDefaults.buttonColors(
+                                containerColor = MaterialTheme.colorScheme.surfaceVariant,
+                                contentColor = MaterialTheme.colorScheme.onSurface
+                            ),
+                            shape = RoundedCornerShape(14.dp),
+                            contentPadding = PaddingValues(horizontal = 8.dp, vertical = 12.dp),
+                            modifier = Modifier.weight(1f)
+                        ) {
+                            Icon(
+                                Icons.Rounded.CloudDownload,
+                                contentDescription = null,
+                                tint = MaterialTheme.colorScheme.primary,
+                                modifier = Modifier.size(18.dp)
+                            )
+                            Spacer(Modifier.width(6.dp))
+                            Text(
+                                "Import Config",
+                                fontSize = 13.sp,
+                                fontWeight = FontWeight.SemiBold,
+                                maxLines = 1
+                            )
+                        }
+                    }
+                }
+            }
+        }
+
+        // Debugging & Diagnostics Section
+        item {
+            Text(
+                "Debugging & Diagnostics",
+                style = MaterialTheme.typography.titleSmall,
+                color = MaterialTheme.colorScheme.primary,
+                fontWeight = FontWeight.Bold,
+                modifier = Modifier.padding(horizontal = 4.dp, vertical = 4.dp)
+            )
+        }
+
+        item {
+            Surface(
+                shape = RoundedCornerShape(22.dp),
+                color = MaterialTheme.colorScheme.surface,
+                tonalElevation = 2.dp,
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(18.dp),
+                    verticalArrangement = Arrangement.spacedBy(14.dp)
                 ) {
                     Row(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(18.dp),
+                        modifier = Modifier.fillMaxWidth(),
                         verticalAlignment = Alignment.CenterVertically
                     ) {
                         Box(
@@ -212,15 +603,15 @@ fun SettingsScreen(navController: NavController) {
                                 .size(46.dp)
                                 .clip(RoundedCornerShape(14.dp))
                                 .background(
-                                    if (isBatteryOptimized) MaterialTheme.colorScheme.error.copy(alpha = 0.15f)
-                                    else MaterialTheme.colorScheme.primary.copy(alpha = 0.15f)
+                                    if (isDebugLogsEnabled) MaterialTheme.colorScheme.primary.copy(alpha = 0.15f)
+                                    else MaterialTheme.colorScheme.surfaceVariant
                                 ),
                             contentAlignment = Alignment.Center
                         ) {
                             Icon(
-                                Icons.Rounded.BatteryAlert,
+                                Icons.Rounded.Terminal,
                                 contentDescription = null,
-                                tint = if (isBatteryOptimized) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.primary,
+                                tint = if (isDebugLogsEnabled) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
                                 modifier = Modifier.size(26.dp)
                             )
                         }
@@ -228,128 +619,95 @@ fun SettingsScreen(navController: NavController) {
                         Spacer(modifier = Modifier.width(16.dp))
 
                         Column(modifier = Modifier.weight(1f)) {
-                            Text("Battery Optimization", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
+                            Text("Verbose Debug Logging", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
                             Text(
-                                if (isBatteryOptimized) "Optimized (may delay triggers). Tap to exclude." else "Unrestricted (recommended)",
+                                if (isDebugLogsEnabled) "Capturing detailed trigger & execution logs" else "Disabled (minimal logging)",
                                 style = MaterialTheme.typography.bodySmall,
-                                color = if (isBatteryOptimized) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurfaceVariant
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
                             )
                         }
 
-                        Icon(
-                            Icons.AutoMirrored.Rounded.KeyboardArrowRight,
-                            contentDescription = null,
-                            tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f)
+                        Switch(
+                            checked = isDebugLogsEnabled,
+                            onCheckedChange = { enabled ->
+                                PreferencesManager.setDebugLogsEnabled(context, enabled)
+                            }
                         )
                     }
-                }
-            }
 
-            // Required Permissions
-            item {
-                Text(
-                    "Required Permissions",
-                    style = MaterialTheme.typography.titleSmall,
-                    color = MaterialTheme.colorScheme.primary,
-                    fontWeight = FontWeight.Bold,
-                    modifier = Modifier.padding(horizontal = 4.dp, vertical = 4.dp)
-                )
-            }
+                    HorizontalDivider(
+                        color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.35f),
+                        thickness = 0.5.dp
+                    )
 
-            item {
-                PermissionStatusCard(
-                    title = "Background Location",
-                    description = if (isBackgroundLocationGranted) "Location triggers active in background" else "Set location permission to 'Allow all the time'",
-                    icon = Icons.Rounded.LocationOn,
-                    isGranted = isBackgroundLocationGranted,
-                    onClick = {
-                        val intent = Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS).apply {
-                            data = Uri.fromParts("package", context.packageName, null)
-                        }
-                        context.startActivity(intent)
-                    }
-                )
-            }
-
-            item {
-                PermissionStatusCard(
-                    title = "Modify System Settings",
-                    description = if (isWriteSettingsGranted) "Brightness and auto-rotate actions enabled" else "Tap to grant permission to modify system settings",
-                    icon = Icons.Rounded.Tune,
-                    isGranted = isWriteSettingsGranted,
-                    onClick = {
-                        val intent = Intent(Settings.ACTION_MANAGE_WRITE_SETTINGS).apply {
-                            data = Uri.parse("package:${context.packageName}")
-                        }
-                        context.startActivity(intent)
-                    }
-                )
-            }
-
-            item {
-                PermissionStatusCard(
-                    title = "Do Not Disturb Access",
-                    description = if (isDndAccessGranted) "Silent, vibrate & DND actions enabled" else "Tap to allow MoodyRoutine notification policy access",
-                    icon = Icons.Rounded.DoNotDisturbOn,
-                    isGranted = isDndAccessGranted,
-                    onClick = {
-                        val intent = Intent(Settings.ACTION_NOTIFICATION_POLICY_ACCESS_SETTINGS)
-                        context.startActivity(intent)
-                    }
-                )
-            }
-
-            item {
-                PermissionStatusCard(
-                    title = "Usage Access",
-                    description = if (isUsageAccessGranted) "App opened & closed triggers enabled" else "Tap to grant usage access for app triggers",
-                    icon = Icons.Rounded.Apps,
-                    isGranted = isUsageAccessGranted,
-                    onClick = {
-                        val intent = Intent(Settings.ACTION_USAGE_ACCESS_SETTINGS)
-                        context.startActivity(intent)
-                    }
-                )
-            }
-
-            // About Section
-            item {
-                Surface(
-                    shape = RoundedCornerShape(22.dp),
-                    color = MaterialTheme.colorScheme.surface,
-                    tonalElevation = 2.dp,
-                    modifier = Modifier.fillMaxWidth()
-                ) {
-                    Column(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(20.dp),
-                        horizontalAlignment = Alignment.CenterHorizontally
+                    Button(
+                        onClick = onNavigateToLogs,
+                        modifier = Modifier.fillMaxWidth(),
+                        shape = RoundedCornerShape(14.dp),
+                        colors = ButtonDefaults.buttonColors(
+                            containerColor = MaterialTheme.colorScheme.surfaceVariant,
+                            contentColor = MaterialTheme.colorScheme.onSurface
+                        ),
+                        contentPadding = PaddingValues(horizontal = 16.dp, vertical = 12.dp)
                     ) {
-                        Box(
-                            modifier = Modifier
-                                .size(56.dp)
-                                .clip(CircleShape)
-                                .background(MaterialTheme.colorScheme.primary.copy(alpha = 0.15f)),
-                            contentAlignment = Alignment.Center
-                        ) {
-                            Icon(
-                                Icons.Rounded.AutoAwesome,
-                                contentDescription = null,
-                                tint = MaterialTheme.colorScheme.primary,
-                                modifier = Modifier.size(30.dp)
-                            )
-                        }
-                        Spacer(modifier = Modifier.height(12.dp))
-                        Text("MoodyRoutine", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+                        Icon(
+                            Icons.Rounded.BugReport,
+                            contentDescription = null,
+                            tint = MaterialTheme.colorScheme.primary,
+                            modifier = Modifier.size(18.dp)
+                        )
+                        Spacer(Modifier.width(8.dp))
                         Text(
-                            "Version 0.1.0 • Samsung One UI Style Automation",
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                            "View Diagnostic Logs",
+                            fontSize = 13.sp,
+                            fontWeight = FontWeight.SemiBold
                         )
                     }
                 }
             }
+        }
+
+        // About Section
+        item {
+            Surface(
+                shape = RoundedCornerShape(22.dp),
+                color = MaterialTheme.colorScheme.surface,
+                tonalElevation = 2.dp,
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(20.dp),
+                    horizontalAlignment = Alignment.CenterHorizontally
+                ) {
+                    Box(
+                        modifier = Modifier
+                            .size(56.dp)
+                            .clip(CircleShape)
+                            .background(MaterialTheme.colorScheme.primary.copy(alpha = 0.15f)),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Icon(
+                            Icons.Rounded.AutoAwesome,
+                            contentDescription = null,
+                            tint = MaterialTheme.colorScheme.primary,
+                            modifier = Modifier.size(30.dp)
+                        )
+                    }
+                    Spacer(modifier = Modifier.height(12.dp))
+                    Text("MoodyRoutine", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+                    Text(
+                        "Version 0.1.0 • Samsung One UI Style Automation",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+            }
+        }
+
+        item {
+            Spacer(modifier = Modifier.height(96.dp))
         }
     }
 }

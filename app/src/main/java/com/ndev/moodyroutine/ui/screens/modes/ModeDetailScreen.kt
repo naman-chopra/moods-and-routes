@@ -26,6 +26,7 @@ import androidx.navigation.NavController
 import com.ndev.moodyroutine.data.db.MoodyRoutineDatabase
 import com.ndev.moodyroutine.data.model.Mode
 import com.ndev.moodyroutine.data.repository.ModeRepository
+import com.ndev.moodyroutine.engine.ActionExecutor
 import com.ndev.moodyroutine.ui.navigation.Screen
 import com.ndev.moodyroutine.ui.util.HumanFormatter
 import com.ndev.moodyroutine.ui.util.UiIcons
@@ -36,6 +37,7 @@ import kotlinx.coroutines.launch
 class ModeDetailViewModel(application: Application) : AndroidViewModel(application) {
     private val db = MoodyRoutineDatabase.getInstance(application)
     private val repository = ModeRepository(db.modeDao())
+    private val actionExecutor = ActionExecutor(application)
     private val _mode = MutableStateFlow<Mode?>(null)
     val mode: StateFlow<Mode?> = _mode
 
@@ -56,7 +58,23 @@ class ModeDetailViewModel(application: Application) : AndroidViewModel(applicati
     fun toggleActive(active: Boolean) {
         val currentMode = _mode.value
         if (currentMode != null) {
-            viewModelScope.launch { repository.setModeActive(currentMode.id, active) }
+            viewModelScope.launch {
+                repository.setModeActive(currentMode.id, active)
+                if (active) {
+                    actionExecutor.executeMode(currentMode)
+                } else if (currentMode.revertActionsOnExit) {
+                    actionExecutor.revertMode(currentMode)
+                }
+            }
+        }
+    }
+
+    fun updateRevertActions(revert: Boolean) {
+        val currentMode = _mode.value ?: return
+        val updated = currentMode.copy(revertActionsOnExit = revert)
+        viewModelScope.launch {
+            repository.updateMode(updated)
+            _mode.value = updated
         }
     }
 }
@@ -277,6 +295,49 @@ fun ModeDetailScreen(
                                 Text(subtitle, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
                             }
                         }
+                    }
+                }
+            }
+
+            // WHEN MODE ENDS SECTION
+            item {
+                Spacer(Modifier.height(16.dp))
+                Text(
+                    text = "When mode ends",
+                    style = MaterialTheme.typography.titleLarge,
+                    fontWeight = FontWeight.Bold
+                )
+                Spacer(Modifier.height(8.dp))
+                Surface(
+                    shape = RoundedCornerShape(18.dp),
+                    color = MaterialTheme.colorScheme.surface,
+                    tonalElevation = 2.dp,
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(16.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text(
+                                text = "Revert actions",
+                                style = MaterialTheme.typography.titleMedium,
+                                fontWeight = FontWeight.SemiBold
+                            )
+                            Spacer(Modifier.height(2.dp))
+                            Text(
+                                text = "Restore ringer, volume, and settings back to what they were before the mode turned on",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
+                        Spacer(Modifier.width(16.dp))
+                        Switch(
+                            checked = currentMode.revertActionsOnExit,
+                            onCheckedChange = { viewModel.updateRevertActions(it) }
+                        )
                     }
                 }
             }

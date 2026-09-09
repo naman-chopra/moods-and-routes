@@ -46,6 +46,7 @@ class RoutineCreateViewModel(application: Application) : AndroidViewModel(applic
     val triggers = MutableStateFlow<List<TriggerConfig>>(emptyList())
     val actions = MutableStateFlow<List<ActionConfig>>(emptyList())
     val matchType = MutableStateFlow(TriggerMatchType.ALL)
+    val revertActionsOnExit = MutableStateFlow(true)
 
     fun loadRoutine(id: Long) {
         routineId = id
@@ -55,6 +56,7 @@ class RoutineCreateViewModel(application: Application) : AndroidViewModel(applic
                 triggers.value = routine.triggers
                 actions.value = routine.actions
                 matchType.value = routine.triggerMatchType
+                revertActionsOnExit.value = routine.revertActionsOnExit
             }
         }
     }
@@ -76,6 +78,7 @@ class RoutineCreateViewModel(application: Application) : AndroidViewModel(applic
                 triggers = triggers.value,
                 actions = actions.value,
                 triggerMatchType = matchType.value,
+                revertActionsOnExit = revertActionsOnExit.value,
                 createdAt = System.currentTimeMillis(),
                 lastTriggeredAt = null
             )
@@ -110,6 +113,7 @@ fun RoutineCreateScreen(
     val triggers by viewModel.triggers.collectAsState()
     val actions by viewModel.actions.collectAsState()
     val matchType by viewModel.matchType.collectAsState()
+    val revertActionsOnExit by viewModel.revertActionsOnExit.collectAsState()
 
     var showTriggerPicker by remember { mutableStateOf(false) }
     var showActionPicker by remember { mutableStateOf(false) }
@@ -545,6 +549,54 @@ fun RoutineCreateScreen(
                             Spacer(Modifier.width(4.dp))
                             Text("Add action", fontWeight = FontWeight.SemiBold)
                         }
+                    }
+                }
+            }
+
+            // Revert actions on exit toggle
+            item {
+                Spacer(Modifier.height(8.dp))
+                Text(
+                    text = "When routine ends",
+                    style = MaterialTheme.typography.titleLarge,
+                    fontWeight = FontWeight.Bold
+                )
+                Text(
+                    text = "Control what happens when conditions no longer match",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+                Spacer(Modifier.height(8.dp))
+                Surface(
+                    shape = RoundedCornerShape(18.dp),
+                    color = MaterialTheme.colorScheme.surface,
+                    tonalElevation = 2.dp,
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(16.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text(
+                                text = "Revert actions",
+                                style = MaterialTheme.typography.titleMedium,
+                                fontWeight = FontWeight.SemiBold
+                            )
+                            Spacer(Modifier.height(2.dp))
+                            Text(
+                                text = "Restore ringer, volume, and settings back to what they were before the routine ran",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
+                        Spacer(Modifier.width(16.dp))
+                        Switch(
+                            checked = revertActionsOnExit,
+                            onCheckedChange = { viewModel.revertActionsOnExit.value = it }
+                        )
                     }
                 }
             }

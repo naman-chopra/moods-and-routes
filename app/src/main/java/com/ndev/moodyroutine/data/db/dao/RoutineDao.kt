@@ -34,4 +34,10 @@ interface RoutineDao {
 
     @Query("UPDATE routines SET isEnabled = :enabled WHERE id = :id")
     suspend fun setEnabled(id: Long, enabled: Boolean)
+
+    @Query("UPDATE routines SET isActive = :active WHERE id = :id")
+    suspend fun setActive(id: Long, active: Boolean)
+
+    @Query("UPDATE routines SET isActive = 0")
+    suspend fun deactivateAll()
 }

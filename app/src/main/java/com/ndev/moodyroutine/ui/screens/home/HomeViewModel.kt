@@ -8,6 +8,7 @@ import com.ndev.moodyroutine.data.model.Mode
 import com.ndev.moodyroutine.data.model.Routine
 import com.ndev.moodyroutine.data.repository.ModeRepository
 import com.ndev.moodyroutine.data.repository.RoutineRepository
+import com.ndev.moodyroutine.engine.ActionExecutor
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.catch
@@ -17,6 +18,7 @@ class HomeViewModel(application: Application) : AndroidViewModel(application) {
     private val db = MoodyRoutineDatabase.getInstance(application)
     private val modeRepository = ModeRepository(db.modeDao())
     private val routineRepository = RoutineRepository(db.routineDao())
+    private val actionExecutor = ActionExecutor(application)
 
     private val _modes = MutableStateFlow<List<Mode>>(emptyList())
     val modes: StateFlow<List<Mode>> = _modes
@@ -40,13 +42,26 @@ class HomeViewModel(application: Application) : AndroidViewModel(application) {
         viewModelScope.launch {
             modeRepository.setModeEnabled(modeId, enabled)
             if (!enabled) {
+                val mode = _modes.value.find { it.id == modeId }
+                if (mode?.isActive == true && mode.revertActionsOnExit) {
+                    actionExecutor.revertMode(mode)
+                }
                 modeRepository.setModeActive(modeId, false)
             }
         }
     }
 
     fun toggleRoutineEnabled(routineId: Long, enabled: Boolean) {
-        viewModelScope.launch { routineRepository.setRoutineEnabled(routineId, enabled) }
+        viewModelScope.launch {
+            routineRepository.setRoutineEnabled(routineId, enabled)
+            if (!enabled) {
+                val routine = _routines.value.find { it.id == routineId }
+                if (routine?.isActive == true && routine.revertActionsOnExit) {
+                    actionExecutor.revertRoutine(routine)
+                }
+                routineRepository.setActive(routineId, false)
+            }
+        }
     }
 
     fun deleteMode(mode: Mode) {
@@ -59,10 +74,14 @@ class HomeViewModel(application: Application) : AndroidViewModel(application) {
 
     fun bulkToggleModesEnabled(modeIds: Set<Long>, enabled: Boolean) {
         viewModelScope.launch {
-            modeIds.forEach {
-                modeRepository.setModeEnabled(it, enabled)
+            modeIds.forEach { id ->
+                modeRepository.setModeEnabled(id, enabled)
                 if (!enabled) {
-                    modeRepository.setModeActive(it, false)
+                    val mode = _modes.value.find { it.id == id }
+                    if (mode?.isActive == true && mode.revertActionsOnExit) {
+                        actionExecutor.revertMode(mode)
+                    }
+                    modeRepository.setModeActive(id, false)
                 }
             }
         }
@@ -70,7 +89,16 @@ class HomeViewModel(application: Application) : AndroidViewModel(application) {
 
     fun bulkToggleRoutinesEnabled(routineIds: Set<Long>, enabled: Boolean) {
         viewModelScope.launch {
-            routineIds.forEach { routineRepository.setRoutineEnabled(it, enabled) }
+            routineIds.forEach { id ->
+                routineRepository.setRoutineEnabled(id, enabled)
+                if (!enabled) {
+                    val routine = _routines.value.find { it.id == id }
+                    if (routine?.isActive == true && routine.revertActionsOnExit) {
+                        actionExecutor.revertRoutine(routine)
+                    }
+                    routineRepository.setActive(id, false)
+                }
+            }
         }
     }
 

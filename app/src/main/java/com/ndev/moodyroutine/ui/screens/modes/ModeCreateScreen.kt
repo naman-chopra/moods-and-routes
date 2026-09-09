@@ -52,6 +52,7 @@ class ModeCreateViewModel(application: Application) : AndroidViewModel(applicati
     val colorHex = MutableStateFlow(String.format("#%06X", 0xFFFFFF and ModeColors.first().toArgb()))
     val actions = MutableStateFlow<List<ActionConfig>>(emptyList())
     val autoTriggers = MutableStateFlow<List<TriggerConfig>>(emptyList())
+    val revertActionsOnExit = MutableStateFlow(true)
 
     fun loadMode(id: Long) {
         modeId = id
@@ -63,6 +64,7 @@ class ModeCreateViewModel(application: Application) : AndroidViewModel(applicati
                 colorHex.value = mode.colorHex
                 actions.value = mode.actions
                 autoTriggers.value = mode.autoTriggers
+                revertActionsOnExit.value = mode.revertActionsOnExit
             }
         }
     }
@@ -76,9 +78,10 @@ class ModeCreateViewModel(application: Application) : AndroidViewModel(applicati
                 description = description.value,
                 iconName = iconName.value,
                 colorHex = colorHex.value,
-                isActive = existing?.isActive ?: true,
+                isActive = existing?.isActive ?: false,
                 actions = actions.value,
                 autoTriggers = autoTriggers.value,
+                revertActionsOnExit = revertActionsOnExit.value,
                 createdAt = existing?.createdAt ?: System.currentTimeMillis()
             )
             if (modeId == null) repository.insertMode(mode) else repository.updateMode(mode)
@@ -104,6 +107,7 @@ fun ModeCreateScreen(
     val selectedColorHex by viewModel.colorHex.collectAsState()
     val actions by viewModel.actions.collectAsState()
     val triggers by viewModel.autoTriggers.collectAsState()
+    val revertActionsOnExit by viewModel.revertActionsOnExit.collectAsState()
 
     var showActionPicker by remember { mutableStateOf(false) }
     var showTriggerPicker by remember { mutableStateOf(false) }
@@ -207,7 +211,7 @@ fun ModeCreateScreen(
             // Icon Picker Row
             item {
                 Text("Select icon", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
-                val iconOptions = listOf("sleep", "driving", "exercise", "work", "relax", "game", "movie", "book", "custom")
+                val iconOptions = UiIcons.MODE_ICON_KEYS
                 LazyRow(
                     horizontalArrangement = Arrangement.spacedBy(12.dp),
                     modifier = Modifier.padding(vertical = 8.dp)
@@ -495,6 +499,54 @@ fun ModeCreateScreen(
                                 fontWeight = FontWeight.SemiBold
                             )
                         }
+                    }
+                }
+            }
+
+            // WHEN MODE ENDS SECTION
+            item {
+                Spacer(Modifier.height(16.dp))
+                Text(
+                    text = "When mode ends",
+                    style = MaterialTheme.typography.titleLarge,
+                    fontWeight = FontWeight.Bold
+                )
+                Text(
+                    text = "Control what happens when conditions no longer match",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+                Spacer(Modifier.height(8.dp))
+                Surface(
+                    shape = RoundedCornerShape(18.dp),
+                    color = MaterialTheme.colorScheme.surface,
+                    tonalElevation = 2.dp,
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(16.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text(
+                                text = "Revert actions",
+                                style = MaterialTheme.typography.titleMedium,
+                                fontWeight = FontWeight.SemiBold
+                            )
+                            Spacer(Modifier.height(2.dp))
+                            Text(
+                                text = "Restore ringer, volume, and settings back to what they were before the mode turned on",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
+                        Spacer(Modifier.width(16.dp))
+                        Switch(
+                            checked = revertActionsOnExit,
+                            onCheckedChange = { viewModel.revertActionsOnExit.value = it }
+                        )
                     }
                 }
             }

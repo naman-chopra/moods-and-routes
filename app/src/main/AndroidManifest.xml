@@ -4,6 +4,8 @@
 
     <!-- Basic permissions -->
     <uses-permission android:name="android.permission.INTERNET" />
+    <uses-permission android:name="android.permission.QUERY_ALL_PACKAGES"
+        tools:ignore="QueryAllPackagesPermission" />
     <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_SPECIAL_USE" />
@@ -42,6 +44,10 @@
     <!-- Wallpaper -->
     <uses-permission android:name="android.permission.SET_WALLPAPER" />
 
+    <!-- App Blocking & Fullscreen Alerts -->
+    <uses-permission android:name="android.permission.USE_FULL_SCREEN_INTENT" />
+    <uses-permission android:name="android.permission.SYSTEM_ALERT_WINDOW" />
+
     <application
         android:name=".MoodyRoutineApp"
         android:allowBackup="true"
@@ -61,6 +67,13 @@
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
         </activity>
+
+        <activity
+            android:name=".ui.activity.AppBlockActivity"
+            android:exported="false"
+            android:theme="@style/Theme.MoodyRoutine"
+            android:launchMode="singleTask"
+            android:excludeFromRecents="true" />
 
         <!-- Automation Foreground Service -->
         <service

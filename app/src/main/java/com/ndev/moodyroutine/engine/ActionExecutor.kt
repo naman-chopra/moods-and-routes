@@ -10,10 +10,13 @@ import android.hardware.camera2.CameraManager
 import android.media.AudioManager
 import android.os.Build
 import android.provider.Settings
-import android.util.Log
 import androidx.core.app.NotificationCompat
+import android.content.SharedPreferences
 import com.ndev.moodyroutine.data.model.ActionConfig
 import com.ndev.moodyroutine.data.model.ActionType
+import com.ndev.moodyroutine.data.model.Mode
+import com.ndev.moodyroutine.data.model.Routine
+import com.ndev.moodyroutine.util.AppLogger
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 
@@ -22,21 +25,274 @@ class ActionExecutor(private val context: Context) {
     private val notificationManager = context.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
     private val cameraManager = context.getSystemService(Context.CAMERA_SERVICE) as CameraManager
     private val uiModeManager = context.getSystemService(Context.UI_MODE_SERVICE) as UiModeManager
+    private val prefs: SharedPreferences =
+        context.getSharedPreferences("moody_mode_snapshots", Context.MODE_PRIVATE)
+
+    suspend fun executeMode(mode: Mode) {
+        withContext(Dispatchers.IO) {
+            snapshotState("mode_${mode.id}_", mode.actions, mode.name)
+            executeAll(mode.actions)
+        }
+    }
+
+    suspend fun revertMode(mode: Mode) {
+        withContext(Dispatchers.IO) {
+            restoreState("mode_${mode.id}_", mode.actions, mode.name)
+        }
+    }
+
+    suspend fun executeRoutine(routine: Routine) {
+        withContext(Dispatchers.IO) {
+            snapshotState("routine_${routine.id}_", routine.actions, routine.name)
+            executeAll(routine.actions)
+        }
+    }
+
+    suspend fun revertRoutine(routine: Routine) {
+        withContext(Dispatchers.IO) {
+            restoreState("routine_${routine.id}_", routine.actions, routine.name)
+        }
+    }
+
+    fun hasRoutineSnapshot(routineId: Long): Boolean {
+        return prefs.getBoolean("routine_${routineId}_has_snapshot", false)
+    }
+
+    private fun snapshotState(prefix: String, actions: List<ActionConfig>, entityName: String) {
+        if (prefs.getBoolean("${prefix}has_snapshot", false)) {
+            AppLogger.d("ActionExecutor", "$entityName already has saved snapshot, retaining original state")
+            return
+        }
+
+        val editor = prefs.edit()
+        var savedSomething = false
+
+        for (action in actions) {
+            when (action.type) {
+                ActionType.SET_RINGER_NORMAL,
+                ActionType.SET_RINGER_VIBRATE,
+                ActionType.SET_RINGER_SILENT -> {
+                    if (!prefs.contains("${prefix}ringer_mode")) {
+                        val currentRinger = audioManager.ringerMode
+                        editor.putInt("${prefix}ringer_mode", currentRinger)
+                        savedSomething = true
+                        AppLogger.i("ActionExecutor", "Snapshotted ringer mode: $currentRinger for $entityName")
+                    }
+                }
+                ActionType.SET_VOLUME_RING -> {
+                    if (!prefs.contains("${prefix}volume_ring")) {
+                        editor.putInt("${prefix}volume_ring", audioManager.getStreamVolume(AudioManager.STREAM_RING))
+                        savedSomething = true
+                    }
+                }
+                ActionType.SET_VOLUME_MEDIA -> {
+                    if (!prefs.contains("${prefix}volume_media")) {
+                        editor.putInt("${prefix}volume_media", audioManager.getStreamVolume(AudioManager.STREAM_MUSIC))
+                        savedSomething = true
+                    }
+                }
+                ActionType.SET_VOLUME_ALARM -> {
+                    if (!prefs.contains("${prefix}volume_alarm")) {
+                        editor.putInt("${prefix}volume_alarm", audioManager.getStreamVolume(AudioManager.STREAM_ALARM))
+                        savedSomething = true
+                    }
+                }
+                ActionType.SET_VOLUME_NOTIFICATION -> {
+                    if (!prefs.contains("${prefix}volume_notif")) {
+                        editor.putInt("${prefix}volume_notif", audioManager.getStreamVolume(AudioManager.STREAM_NOTIFICATION))
+                        savedSomething = true
+                    }
+                }
+                ActionType.SET_DND_ON,
+                ActionType.SET_DND_OFF,
+                ActionType.SET_DND_PRIORITY_ONLY,
+                ActionType.SET_DND_ALARMS_ONLY -> {
+                    if (!prefs.contains("${prefix}dnd_filter")) {
+                        if (notificationManager.isNotificationPolicyAccessGranted) {
+                            editor.putInt("${prefix}dnd_filter", notificationManager.currentInterruptionFilter)
+                            savedSomething = true
+                            AppLogger.i("ActionExecutor", "Snapshotted DND filter: ${notificationManager.currentInterruptionFilter} for $entityName")
+                        }
+                    }
+                }
+                ActionType.SET_BRIGHTNESS -> {
+                    if (!prefs.contains("${prefix}brightness")) {
+                        try {
+                            val current = Settings.System.getInt(context.contentResolver, Settings.System.SCREEN_BRIGHTNESS)
+                            editor.putInt("${prefix}brightness", current)
+                            savedSomething = true
+                            AppLogger.i("ActionExecutor", "Snapshotted brightness: $current for $entityName")
+                        } catch (e: Exception) {
+                            AppLogger.w("ActionExecutor", "Could not snapshot brightness", e)
+                        }
+                    }
+                }
+                ActionType.TOGGLE_AUTO_ROTATE_ON,
+                ActionType.TOGGLE_AUTO_ROTATE_OFF -> {
+                    if (!prefs.contains("${prefix}auto_rotate")) {
+                        try {
+                            val current = Settings.System.getInt(context.contentResolver, Settings.System.ACCELEROMETER_ROTATION)
+                            editor.putInt("${prefix}auto_rotate", current)
+                            savedSomething = true
+                            AppLogger.i("ActionExecutor", "Snapshotted auto-rotate: $current for $entityName")
+                        } catch (e: Exception) {
+                            AppLogger.w("ActionExecutor", "Could not snapshot auto-rotate", e)
+                        }
+                    }
+                }
+                ActionType.TOGGLE_FLASHLIGHT_ON -> {
+                    editor.putBoolean("${prefix}flashlight_on", true)
+                    savedSomething = true
+                }
+                ActionType.ENABLE_DARK_MODE,
+                ActionType.DISABLE_DARK_MODE -> {
+                    if (!prefs.contains("${prefix}dark_mode")) {
+                        editor.putInt("${prefix}dark_mode", uiModeManager.nightMode)
+                        savedSomething = true
+                    }
+                }
+                else -> {}
+            }
+        }
+
+        if (savedSomething) {
+            editor.putBoolean("${prefix}has_snapshot", true)
+            editor.apply()
+            AppLogger.i("ActionExecutor", "Saved pre-execution snapshot for: $entityName")
+        }
+    }
+
+    private fun restoreState(prefix: String, actions: List<ActionConfig>, entityName: String) {
+        val hasSnapshot = prefs.getBoolean("${prefix}has_snapshot", false)
+        AppLogger.i("ActionExecutor", "Reverting actions for: $entityName (hasSnapshot=$hasSnapshot)")
+
+        if (hasSnapshot) {
+            if (prefs.contains("${prefix}ringer_mode")) {
+                val ringer = prefs.getInt("${prefix}ringer_mode", AudioManager.RINGER_MODE_NORMAL)
+                try {
+                    audioManager.ringerMode = ringer
+                    AppLogger.i("ActionExecutor", "Reverted ringer mode to $ringer for $entityName")
+                } catch (e: Exception) {
+                    AppLogger.e("ActionExecutor", "Failed to restore ringer mode", e)
+                }
+            }
+
+            if (prefs.contains("${prefix}volume_ring")) {
+                val vol = prefs.getInt("${prefix}volume_ring", -1)
+                if (vol >= 0) audioManager.setStreamVolume(AudioManager.STREAM_RING, vol, 0)
+            }
+            if (prefs.contains("${prefix}volume_media")) {
+                val vol = prefs.getInt("${prefix}volume_media", -1)
+                if (vol >= 0) audioManager.setStreamVolume(AudioManager.STREAM_MUSIC, vol, 0)
+            }
+            if (prefs.contains("${prefix}volume_alarm")) {
+                val vol = prefs.getInt("${prefix}volume_alarm", -1)
+                if (vol >= 0) audioManager.setStreamVolume(AudioManager.STREAM_ALARM, vol, 0)
+            }
+            if (prefs.contains("${prefix}volume_notif")) {
+                val vol = prefs.getInt("${prefix}volume_notif", -1)
+                if (vol >= 0) audioManager.setStreamVolume(AudioManager.STREAM_NOTIFICATION, vol, 0)
+            }
+
+            if (prefs.contains("${prefix}dnd_filter")) {
+                val filter = prefs.getInt("${prefix}dnd_filter", NotificationManager.INTERRUPTION_FILTER_ALL)
+                setDndMode(filter)
+                AppLogger.i("ActionExecutor", "Reverted DND filter to $filter for $entityName")
+            }
+
+            if (prefs.contains("${prefix}brightness")) {
+                val brightness = prefs.getInt("${prefix}brightness", -1)
+                if (brightness >= 0 && Settings.System.canWrite(context)) {
+                    try {
+                        Settings.System.putInt(context.contentResolver, Settings.System.SCREEN_BRIGHTNESS, brightness)
+                        AppLogger.i("ActionExecutor", "Reverted brightness to $brightness for $entityName")
+                    } catch (e: Exception) {
+                        AppLogger.e("ActionExecutor", "Could not restore brightness", e)
+                    }
+                }
+            }
+
+            if (prefs.contains("${prefix}auto_rotate")) {
+                val rotate = prefs.getInt("${prefix}auto_rotate", -1)
+                if (rotate >= 0 && Settings.System.canWrite(context)) {
+                    try {
+                        Settings.System.putInt(context.contentResolver, Settings.System.ACCELEROMETER_ROTATION, rotate)
+                        AppLogger.i("ActionExecutor", "Reverted auto-rotate to $rotate for $entityName")
+                    } catch (e: Exception) {
+                        AppLogger.e("ActionExecutor", "Could not restore auto-rotate", e)
+                    }
+                }
+            }
+
+            if (prefs.getBoolean("${prefix}flashlight_on", false)) {
+                toggleFlashlight(false)
+                AppLogger.i("ActionExecutor", "Reverted flashlight to OFF for $entityName")
+            }
+
+            if (prefs.contains("${prefix}dark_mode")) {
+                val nightMode = prefs.getInt("${prefix}dark_mode", UiModeManager.MODE_NIGHT_AUTO)
+                uiModeManager.nightMode = nightMode
+                AppLogger.i("ActionExecutor", "Reverted dark mode to $nightMode for $entityName")
+            }
+
+            // Clear snapshot
+            prefs.edit()
+                .remove("${prefix}has_snapshot")
+                .remove("${prefix}ringer_mode")
+                .remove("${prefix}volume_ring")
+                .remove("${prefix}volume_media")
+                .remove("${prefix}volume_alarm")
+                .remove("${prefix}volume_notif")
+                .remove("${prefix}dnd_filter")
+                .remove("${prefix}brightness")
+                .remove("${prefix}auto_rotate")
+                .remove("${prefix}flashlight_on")
+                .remove("${prefix}dark_mode")
+                .apply()
+        } else {
+            // Intelligent fallback if no snapshot was recorded
+            for (action in actions) {
+                when (action.type) {
+                    ActionType.SET_RINGER_SILENT,
+                    ActionType.SET_RINGER_VIBRATE -> {
+                        audioManager.ringerMode = AudioManager.RINGER_MODE_NORMAL
+                        AppLogger.i("ActionExecutor", "Fallback: restored ringer to NORMAL for $entityName")
+                    }
+                    ActionType.SET_DND_ON,
+                    ActionType.SET_DND_PRIORITY_ONLY,
+                    ActionType.SET_DND_ALARMS_ONLY -> {
+                        setDndMode(NotificationManager.INTERRUPTION_FILTER_ALL)
+                        AppLogger.i("ActionExecutor", "Fallback: restored DND to OFF for $entityName")
+                    }
+                    ActionType.TOGGLE_FLASHLIGHT_ON -> {
+                        toggleFlashlight(false)
+                    }
+                    else -> {}
+                }
+            }
+        }
+    }
 
     suspend fun executeAll(actions: List<ActionConfig>) {
         withContext(Dispatchers.IO) {
             for (action in actions) {
                 try {
+                    if (action.type == ActionType.WAIT_DELAY) {
+                        val sec = action.params["seconds"]?.toLongOrNull() ?: 5L
+                        AppLogger.i("ActionExecutor", "Waiting $sec seconds before next action...")
+                        kotlinx.coroutines.delay(sec * 1000L)
+                        continue
+                    }
                     executeAction(action)
                 } catch (e: Exception) {
-                    Log.e("MoodyRoutine", "Failed to execute action: $action", e)
+                    AppLogger.e("ActionExecutor", "Failed to execute action: $action", e)
                 }
             }
         }
     }
 
     private fun executeAction(action: ActionConfig) {
-        Log.i("MoodyRoutine", "Executing action: ${action.type}")
+        AppLogger.i("ActionExecutor", "Executing action: ${action.type}")
         when (action.type) {
             ActionType.SET_VOLUME_RING -> setVolume(AudioManager.STREAM_RING, action.params["volume"])
             ActionType.SET_VOLUME_MEDIA -> setVolume(AudioManager.STREAM_MUSIC, action.params["volume"])
@@ -53,37 +309,49 @@ class ActionExecutor(private val context: Context) {
                     val brightnessPercent = action.params["brightness"]?.toIntOrNull() ?: return
                     val brightness = ((brightnessPercent * 255) / 100).coerceIn(0, 255)
                     Settings.System.putInt(context.contentResolver, Settings.System.SCREEN_BRIGHTNESS, brightness)
-                    Log.i("MoodyRoutine", "Set brightness to $brightnessPercent% ($brightness/255)")
+                    AppLogger.i("ActionExecutor", "Set brightness to $brightnessPercent% ($brightness/255)")
                 } else {
-                    Log.w("MoodyRoutine", "WRITE_SETTINGS permission required to set brightness")
+                    AppLogger.w("ActionExecutor", "WRITE_SETTINGS permission required to set brightness")
                 }
             }
             ActionType.TOGGLE_AUTO_ROTATE_ON -> {
                 if (Settings.System.canWrite(context)) {
                     Settings.System.putInt(context.contentResolver, Settings.System.ACCELEROMETER_ROTATION, 1)
-                    Log.i("MoodyRoutine", "Auto-rotate turned ON")
+                    AppLogger.i("ActionExecutor", "Auto-rotate turned ON")
                 } else {
-                    Log.w("MoodyRoutine", "WRITE_SETTINGS permission required for auto-rotate")
+                    AppLogger.w("ActionExecutor", "WRITE_SETTINGS permission required for auto-rotate")
                 }
             }
             ActionType.TOGGLE_AUTO_ROTATE_OFF -> {
                 if (Settings.System.canWrite(context)) {
                     Settings.System.putInt(context.contentResolver, Settings.System.ACCELEROMETER_ROTATION, 0)
-                    Log.i("MoodyRoutine", "Auto-rotate turned OFF")
+                    AppLogger.i("ActionExecutor", "Auto-rotate turned OFF")
                 } else {
-                    Log.w("MoodyRoutine", "WRITE_SETTINGS permission required for auto-rotate")
+                    AppLogger.w("ActionExecutor", "WRITE_SETTINGS permission required for auto-rotate")
                 }
             }
 
             ActionType.OPEN_APP -> {
+                val shortcutUri = action.params["shortcutUri"]
+                if (!shortcutUri.isNullOrBlank()) {
+                    try {
+                        val intent = Intent.parseUri(shortcutUri, Intent.URI_INTENT_SCHEME)
+                        intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                        context.startActivity(intent)
+                        AppLogger.i("ActionExecutor", "Launched shortcut: ${action.params["shortcutName"]} ($shortcutUri)")
+                        return
+                    } catch (e: Exception) {
+                        AppLogger.e("ActionExecutor", "Failed to launch shortcut URI", e)
+                    }
+                }
                 val packageName = action.params["packageName"] ?: return
                 val intent = context.packageManager.getLaunchIntentForPackage(packageName)
                 if (intent != null) {
                     intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
                     context.startActivity(intent)
-                    Log.i("MoodyRoutine", "Launched app: $packageName")
+                    AppLogger.i("ActionExecutor", "Launched app: $packageName")
                 } else {
-                    Log.w("MoodyRoutine", "Could not find launch intent for $packageName")
+                    AppLogger.w("ActionExecutor", "Could not find launch intent for $packageName")
                 }
             }
             ActionType.CLOSE_APP -> {
@@ -93,33 +361,68 @@ class ActionExecutor(private val context: Context) {
                     flags = Intent.FLAG_ACTIVITY_NEW_TASK
                 }
                 context.startActivity(homeIntent)
-                Log.i("MoodyRoutine", "Close app action: Returned to home screen")
+                AppLogger.i("ActionExecutor", "Close app action: Returned to home screen")
             }
-            ActionType.SET_WALLPAPER -> {
-                try {
-                    val wallpaperManager = WallpaperManager.getInstance(context)
-                    wallpaperManager.clear()
-                    Log.i("MoodyRoutine", "Reset wallpaper")
-                } catch (e: Exception) {
-                    Log.w("MoodyRoutine", "Could not reset wallpaper", e)
+            ActionType.RESTRICT_APPS -> {
+                AppLogger.i("ActionExecutor", "Restricted apps action registered: ${action.params["appCount"]} apps")
+            }
+            ActionType.SET_WALLPAPER,
+            ActionType.SET_HOME_WALLPAPER,
+            ActionType.SET_LOCK_WALLPAPER -> {
+                val wallpaperUriStr = action.params["wallpaperUri"]
+                val wallpaperManager = WallpaperManager.getInstance(context)
+                if (!wallpaperUriStr.isNullOrBlank()) {
+                    try {
+                        val uri = android.net.Uri.parse(wallpaperUriStr)
+                        val inputStream = context.contentResolver.openInputStream(uri)
+                        if (inputStream != null) {
+                            val bitmap = android.graphics.BitmapFactory.decodeStream(inputStream)
+                            inputStream.close()
+                            if (bitmap != null) {
+                                if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.N) {
+                                    val which = when (action.type) {
+                                        ActionType.SET_HOME_WALLPAPER -> WallpaperManager.FLAG_SYSTEM
+                                        ActionType.SET_LOCK_WALLPAPER -> WallpaperManager.FLAG_LOCK
+                                        else -> WallpaperManager.FLAG_SYSTEM or WallpaperManager.FLAG_LOCK
+                                    }
+                                    wallpaperManager.setBitmap(bitmap, null, true, which)
+                                } else {
+                                    wallpaperManager.setBitmap(bitmap)
+                                }
+                                AppLogger.i("ActionExecutor", "Applied wallpaper for ${action.type}")
+                            }
+                        }
+                    } catch (e: Exception) {
+                        AppLogger.e("ActionExecutor", "Failed to set wallpaper", e)
+                    }
+                } else {
+                    try {
+                        wallpaperManager.clear()
+                        AppLogger.i("ActionExecutor", "Reset wallpaper")
+                    } catch (e: Exception) {
+                        AppLogger.w("ActionExecutor", "Could not reset wallpaper", e)
+                    }
                 }
+            }
+            ActionType.WAIT_DELAY -> {
+                // Handled in executeAll suspend loop
             }
 
             ActionType.SET_RINGER_NORMAL -> {
                 audioManager.ringerMode = AudioManager.RINGER_MODE_NORMAL
-                Log.i("MoodyRoutine", "Ringer mode set to NORMAL")
+                AppLogger.i("ActionExecutor", "Ringer mode set to NORMAL")
             }
             ActionType.SET_RINGER_VIBRATE -> {
                 audioManager.ringerMode = AudioManager.RINGER_MODE_VIBRATE
-                Log.i("MoodyRoutine", "Ringer mode set to VIBRATE")
+                AppLogger.i("ActionExecutor", "Ringer mode set to VIBRATE")
             }
             ActionType.SET_RINGER_SILENT -> {
                 if (notificationManager.isNotificationPolicyAccessGranted) {
                     audioManager.ringerMode = AudioManager.RINGER_MODE_SILENT
-                    Log.i("MoodyRoutine", "Ringer mode set to SILENT")
+                    AppLogger.i("ActionExecutor", "Ringer mode set to SILENT")
                 } else {
                     audioManager.ringerMode = AudioManager.RINGER_MODE_VIBRATE
-                    Log.w("MoodyRoutine", "DND access required for SILENT mode, fell back to VIBRATE")
+                    AppLogger.w("ActionExecutor", "DND access required for SILENT mode, fell back to VIBRATE")
                 }
             }
 
@@ -130,11 +433,11 @@ class ActionExecutor(private val context: Context) {
 
             ActionType.ENABLE_DARK_MODE -> {
                 uiModeManager.nightMode = UiModeManager.MODE_NIGHT_YES
-                Log.i("MoodyRoutine", "Dark mode ENABLED")
+                AppLogger.i("ActionExecutor", "Dark mode ENABLED")
             }
             ActionType.DISABLE_DARK_MODE -> {
                 uiModeManager.nightMode = UiModeManager.MODE_NIGHT_NO
-                Log.i("MoodyRoutine", "Dark mode DISABLED")
+                AppLogger.i("ActionExecutor", "Dark mode DISABLED")
             }
         }
     }
@@ -145,18 +448,18 @@ class ActionExecutor(private val context: Context) {
         val targetVolume = ((maxVolume * volumePercent) / 100).coerceIn(0, maxVolume)
         try {
             audioManager.setStreamVolume(streamType, targetVolume, 0)
-            Log.i("MoodyRoutine", "Set stream $streamType volume to $volumePercent% ($targetVolume/$maxVolume)")
+            AppLogger.i("ActionExecutor", "Set stream $streamType volume to $volumePercent% ($targetVolume/$maxVolume)")
         } catch (e: SecurityException) {
-            Log.w("MoodyRoutine", "Could not set stream $streamType volume (requires DND access)", e)
+            AppLogger.w("ActionExecutor", "Could not set stream $streamType volume (requires DND access)", e)
         }
     }
 
     private fun setDndMode(filter: Int) {
         if (notificationManager.isNotificationPolicyAccessGranted) {
             notificationManager.setInterruptionFilter(filter)
-            Log.i("MoodyRoutine", "DND mode filter set to $filter")
+            AppLogger.i("ActionExecutor", "DND mode filter set to $filter")
         } else {
-            Log.w("MoodyRoutine", "Missing DND permission (Notification Policy Access)")
+            AppLogger.w("ActionExecutor", "Missing DND permission (Notification Policy Access)")
         }
     }
 
@@ -164,9 +467,9 @@ class ActionExecutor(private val context: Context) {
         try {
             val cameraId = cameraManager.cameraIdList.firstOrNull() ?: return
             cameraManager.setTorchMode(cameraId, state)
-            Log.i("MoodyRoutine", "Torch mode set to $state")
+            AppLogger.i("ActionExecutor", "Torch mode set to $state")
         } catch (e: Exception) {
-            Log.e("MoodyRoutine", "Error toggling flashlight", e)
+            AppLogger.e("ActionExecutor", "Error toggling flashlight", e)
         }
     }
 
@@ -184,6 +487,6 @@ class ActionExecutor(private val context: Context) {
             .setAutoCancel(true)
         val notifId = (System.currentTimeMillis() % 100000).toInt()
         notificationManager.notify(notifId, builder.build())
-        Log.i("MoodyRoutine", "Posted notification: title='$title', message='$message'")
+        AppLogger.i("ActionExecutor", "Posted notification: title='$title', message='$message'")
     }
 }

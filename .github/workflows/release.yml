@@ -1,0 +1,67 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build-and-release:
+    name: Build & Release APK
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Set up Java 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'temurin'
+          java-version: '17'
+
+      - name: Setup Gradle
+        uses: gradle/actions/setup-gradle@v4
+
+      - name: Grant execute permission for gradlew
+        run: chmod +x gradlew
+
+      - name: Build APKs
+        run: ./gradlew assembleDebug assembleRelease --stacktrace
+
+      - name: Prepare Artifacts
+        run: |
+          mkdir -p release-artifacts
+          TAG_NAME="${GITHUB_REF_NAME:-latest}"
+          cp app/build/outputs/apk/debug/app-debug.apk "release-artifacts/MoodyRoutine-${TAG_NAME}-debug.apk"
+          if [ -f app/build/outputs/apk/release/app-release-unsigned.apk ]; then
+            cp app/build/outputs/apk/release/app-release-unsigned.apk "release-artifacts/MoodyRoutine-${TAG_NAME}-release-unsigned.apk"
+          fi
+          ls -la release-artifacts/
+
+      - name: Determine Pre-release status
+        id: check-prerelease
+        run: |
+          TAG="${GITHUB_REF_NAME}"
+          if [[ "$TAG" == *"-"* || "$TAG" == *"pre"* || "$TAG" == *"alpha"* || "$TAG" == *"beta"* || "$TAG" == *"rc"* ]]; then
+            echo "is_prerelease=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "is_prerelease=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          name: "MoodyRoutine ${{ github.ref_name }}"
+          files: release-artifacts/*
+          prerelease: ${{ steps.check-prerelease.outputs.is_prerelease }}
+          generate_release_notes: true
+          draft: false
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

@@ -9,14 +9,17 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.ArrowBack
+import androidx.compose.material.icons.automirrored.rounded.Undo
 import androidx.compose.material.icons.rounded.ArrowDownward
 import androidx.compose.material.icons.rounded.DeleteOutline
 import androidx.compose.material.icons.rounded.Edit
+import androidx.compose.material.icons.rounded.PlayArrow
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.AndroidViewModel
@@ -26,6 +29,7 @@ import androidx.navigation.NavController
 import com.ndev.moodyroutine.data.db.MoodyRoutineDatabase
 import com.ndev.moodyroutine.data.model.Routine
 import com.ndev.moodyroutine.data.repository.RoutineRepository
+import com.ndev.moodyroutine.engine.ActionExecutor
 import com.ndev.moodyroutine.ui.navigation.Screen
 import com.ndev.moodyroutine.ui.util.HumanFormatter
 import com.ndev.moodyroutine.ui.util.UiIcons
@@ -36,6 +40,7 @@ import kotlinx.coroutines.launch
 class RoutineDetailViewModel(application: Application) : AndroidViewModel(application) {
     private val db = MoodyRoutineDatabase.getInstance(application)
     private val repository = RoutineRepository(db.routineDao())
+    private val actionExecutor = ActionExecutor(application)
     private val _routine = MutableStateFlow<Routine?>(null)
     val routine: StateFlow<Routine?> = _routine
 
@@ -56,7 +61,38 @@ class RoutineDetailViewModel(application: Application) : AndroidViewModel(applic
     fun toggleEnabled(enabled: Boolean) {
         val currentRoutine = _routine.value
         if (currentRoutine != null) {
-            viewModelScope.launch { repository.setRoutineEnabled(currentRoutine.id, enabled) }
+            viewModelScope.launch {
+                repository.setRoutineEnabled(currentRoutine.id, enabled)
+                if (!enabled && currentRoutine.isActive && currentRoutine.revertActionsOnExit) {
+                    actionExecutor.revertRoutine(currentRoutine)
+                    repository.setActive(currentRoutine.id, false)
+                }
+            }
+        }
+    }
+
+    fun runRoutine() {
+        val currentRoutine = _routine.value ?: return
+        viewModelScope.launch {
+            repository.setActive(currentRoutine.id, true)
+            actionExecutor.executeRoutine(currentRoutine)
+        }
+    }
+
+    fun revertRoutine() {
+        val currentRoutine = _routine.value ?: return
+        viewModelScope.launch {
+            actionExecutor.revertRoutine(currentRoutine)
+            repository.setActive(currentRoutine.id, false)
+        }
+    }
+
+    fun updateRevertActions(revert: Boolean) {
+        val currentRoutine = _routine.value ?: return
+        val updated = currentRoutine.copy(revertActionsOnExit = revert)
+        viewModelScope.launch {
+            repository.updateRoutine(updated)
+            _routine.value = updated
         }
     }
 }
@@ -121,10 +157,31 @@ fun RoutineDetailScreen(
                         verticalAlignment = Alignment.CenterVertically,
                         horizontalArrangement = Arrangement.SpaceBetween
                     ) {
-                        Column {
-                            Text("Routine status", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
+                        Column(modifier = Modifier.weight(1f)) {
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Text("Routine status", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
+                                if (currentRoutine.isActive) {
+                                    Spacer(Modifier.width(8.dp))
+                                    Box(
+                                        modifier = Modifier
+                                            .size(8.dp)
+                                            .clip(CircleShape)
+                                            .background(Color(0xFF10B981))
+                                    )
+                                    Spacer(Modifier.width(4.dp))
+                                    Text(
+                                        "Active",
+                                        style = MaterialTheme.typography.labelMedium,
+                                        color = Color(0xFF10B981),
+                                        fontWeight = FontWeight.Bold
+                                    )
+                                }
+                            }
+                            Spacer(Modifier.height(2.dp))
                             Text(
-                                if (currentRoutine.isEnabled) "Running automatically" else "Disabled",
+                                if (currentRoutine.isActive) "Actions applied (active)"
+                                else if (currentRoutine.isEnabled) "Running automatically"
+                                else "Disabled",
                                 style = MaterialTheme.typography.bodySmall,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant
                             )
@@ -133,6 +190,42 @@ fun RoutineDetailScreen(
                             checked = currentRoutine.isEnabled,
                             onCheckedChange = { viewModel.toggleEnabled(it) }
                         )
+                    }
+                }
+            }
+
+            // Run & Revert Buttons
+            item {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(12.dp)
+                ) {
+                    Button(
+                        onClick = { viewModel.runRoutine() },
+                        modifier = Modifier
+                            .weight(1f)
+                            .height(48.dp),
+                        shape = RoundedCornerShape(24.dp)
+                    ) {
+                        Icon(Icons.Rounded.PlayArrow, contentDescription = null, modifier = Modifier.size(20.dp))
+                        Spacer(Modifier.width(8.dp))
+                        Text("Run routine", fontWeight = FontWeight.Bold)
+                    }
+
+                    FilledTonalButton(
+                        onClick = { viewModel.revertRoutine() },
+                        modifier = Modifier
+                            .weight(1f)
+                            .height(48.dp),
+                        shape = RoundedCornerShape(24.dp),
+                        colors = ButtonDefaults.filledTonalButtonColors(
+                            containerColor = MaterialTheme.colorScheme.secondaryContainer,
+                            contentColor = MaterialTheme.colorScheme.onSecondaryContainer
+                        )
+                    ) {
+                        Icon(Icons.AutoMirrored.Rounded.Undo, contentDescription = null, modifier = Modifier.size(20.dp))
+                        Spacer(Modifier.width(8.dp))
+                        Text("Revert", fontWeight = FontWeight.Bold)
                     }
                 }
             }
@@ -273,6 +366,55 @@ fun RoutineDetailScreen(
                         }
                     }
                 }
+            }
+
+            // WHEN ROUTINE ENDS SECTION
+            item {
+                Spacer(Modifier.height(8.dp))
+                Text(
+                    text = "When routine ends",
+                    style = MaterialTheme.typography.titleLarge,
+                    fontWeight = FontWeight.Bold
+                )
+                Text(
+                    text = "Control what happens when conditions no longer match",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+                Spacer(Modifier.height(8.dp))
+                Surface(
+                    shape = RoundedCornerShape(20.dp),
+                    color = MaterialTheme.colorScheme.surface,
+                    tonalElevation = 2.dp,
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(16.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text(
+                                text = "Revert actions",
+                                style = MaterialTheme.typography.titleMedium,
+                                fontWeight = FontWeight.SemiBold
+                            )
+                            Spacer(Modifier.height(2.dp))
+                            Text(
+                                text = "Restore ringer, volume, and settings back to what they were before the routine ran",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
+                        Spacer(Modifier.width(16.dp))
+                        Switch(
+                            checked = currentRoutine.revertActionsOnExit,
+                            onCheckedChange = { viewModel.updateRevertActions(it) }
+                        )
+                    }
+                }
+                Spacer(Modifier.height(16.dp))
             }
         }
     }
