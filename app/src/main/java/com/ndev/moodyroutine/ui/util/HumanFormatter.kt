@@ -24,7 +24,7 @@ object HumanFormatter {
                 "$start - $end"
             }
             TriggerType.DAY_OF_WEEK -> {
-                val days = trigger.params["days"]?.let { formatDays(it) } ?: "Weekdays"
+                val days = trigger.params["days"]?.let { formatDays(it) } ?: "Every day"
                 days
             }
             TriggerType.LOCATION_ARRIVE -> {
@@ -125,7 +125,7 @@ object HumanFormatter {
         return Pair(title, subtitle)
     }
 
-    private fun formatDays(daysStr: String): String {
+    fun formatDays(daysStr: String): String {
         val days = daysStr.split(",").mapNotNull { it.trim().toIntOrNull() }.sorted()
         if (days.size == 7) return "Every day"
         if (days == listOf(2, 3, 4, 5, 6)) return "Weekdays"

@@ -31,9 +31,12 @@ import com.ndev.moodyroutine.data.db.MoodyRoutineDatabase
 import com.ndev.moodyroutine.data.model.ActionConfig
 import com.ndev.moodyroutine.data.model.Mode
 import com.ndev.moodyroutine.data.model.TriggerConfig
+import com.ndev.moodyroutine.data.model.TriggerType
 import com.ndev.moodyroutine.data.repository.ModeRepository
 import com.ndev.moodyroutine.ui.components.ActionPickerSheet
+import com.ndev.moodyroutine.ui.components.OsmLocationPickerDialog
 import com.ndev.moodyroutine.ui.components.TriggerPickerSheet
+import com.ndev.moodyroutine.ui.dialogs.*
 import com.ndev.moodyroutine.ui.theme.ModeColors
 import com.ndev.moodyroutine.ui.util.HumanFormatter
 import com.ndev.moodyroutine.ui.util.UiIcons
@@ -111,6 +114,7 @@ fun ModeCreateScreen(
 
     var showActionPicker by remember { mutableStateOf(false) }
     var showTriggerPicker by remember { mutableStateOf(false) }
+    var editingTriggerIndex by remember { mutableStateOf<Int?>(null) }
 
     val currentColor = try {
         Color(android.graphics.Color.parseColor(selectedColorHex))
@@ -323,7 +327,8 @@ fun ModeCreateScreen(
                         shape = RoundedCornerShape(18.dp),
                         color = MaterialTheme.colorScheme.surface,
                         tonalElevation = 2.dp,
-                        modifier = Modifier.fillMaxWidth()
+                        modifier = Modifier.fillMaxWidth(),
+                        onClick = { editingTriggerIndex = index }
                     ) {
                         Row(
                             modifier = Modifier.fillMaxWidth().padding(16.dp),
@@ -575,5 +580,143 @@ fun ModeCreateScreen(
                 showTriggerPicker = false
             }
         )
+    }
+
+    editingTriggerIndex?.let { index ->
+        val trigger = triggers.getOrNull(index)
+        if (trigger != null) {
+            when (trigger.type) {
+                TriggerType.TIME_OF_DAY -> {
+                    TimeConfigDialog(
+                        initialTime = trigger.params["time"] ?: "08:00",
+                        initialDays = trigger.params["days"] ?: "1,2,3,4,5,6,7",
+                        onDismiss = { editingTriggerIndex = null },
+                        onConfirm = { time, days ->
+                            val list = triggers.toMutableList()
+                            list[index] = trigger.copy(params = mapOf("time" to time, "days" to days))
+                            viewModel.autoTriggers.value = list
+                            editingTriggerIndex = null
+                        }
+                    )
+                }
+                TriggerType.TIME_RANGE -> {
+                    TimeRangeConfigDialog(
+                        initialStartTime = trigger.params["startTime"] ?: "09:00",
+                        initialEndTime = trigger.params["endTime"] ?: "17:00",
+                        onDismiss = { editingTriggerIndex = null },
+                        onConfirm = { startTime, endTime ->
+                            val list = triggers.toMutableList()
+                            list[index] = trigger.copy(params = mapOf("startTime" to startTime, "endTime" to endTime))
+                            viewModel.autoTriggers.value = list
+                            editingTriggerIndex = null
+                        }
+                    )
+                }
+                TriggerType.DAY_OF_WEEK -> {
+                    DayOfWeekConfigDialog(
+                        initialDays = trigger.params["days"] ?: "1,2,3,4,5,6,7",
+                        onDismiss = { editingTriggerIndex = null },
+                        onConfirm = { days ->
+                            val list = triggers.toMutableList()
+                            list[index] = trigger.copy(params = mapOf("days" to days))
+                            viewModel.autoTriggers.value = list
+                            editingTriggerIndex = null
+                        }
+                    )
+                }
+                TriggerType.LOCATION_ARRIVE,
+                TriggerType.LOCATION_LEAVE -> {
+                    OsmLocationPickerDialog(
+                        initialIsArrive = trigger.type == TriggerType.LOCATION_ARRIVE,
+                        initialLocationName = trigger.params["locationName"] ?: "Home",
+                        initialRadius = trigger.params["radius"]?.toIntOrNull() ?: 150,
+                        onDismiss = { editingTriggerIndex = null },
+                        onConfirm = { isArrive, name, address, lat, lng, radius ->
+                            val type = if (isArrive) TriggerType.LOCATION_ARRIVE else TriggerType.LOCATION_LEAVE
+                            val list = triggers.toMutableList()
+                            list[index] = TriggerConfig(
+                                type = type,
+                                params = buildMap {
+                                    put("locationName", name)
+                                    if (address.isNotBlank()) put("address", address)
+                                    if (lat != 0.0 || lng != 0.0) {
+                                        put("latitude", lat.toString())
+                                        put("longitude", lng.toString())
+                                    }
+                                    put("radius", radius.toString())
+                                }
+                            )
+                            viewModel.autoTriggers.value = list
+                            editingTriggerIndex = null
+                        }
+                    )
+                }
+                TriggerType.BATTERY_LEVEL -> {
+                    BatteryConfigDialog(
+                        initialLevel = trigger.params["level"]?.toIntOrNull() ?: 20,
+                        initialComparison = trigger.params["comparison"] ?: "below",
+                        onDismiss = { editingTriggerIndex = null },
+                        onConfirm = { level, comparison ->
+                            val list = triggers.toMutableList()
+                            list[index] = trigger.copy(params = mapOf("level" to level.toString(), "comparison" to comparison))
+                            viewModel.autoTriggers.value = list
+                            editingTriggerIndex = null
+                        }
+                    )
+                }
+                TriggerType.WIFI_SPECIFIC_NETWORK -> {
+                    WifiConfigDialog(
+                        initialName = trigger.params["wifiName"] ?: "",
+                        onDismiss = { editingTriggerIndex = null },
+                        onConfirm = { name ->
+                            val list = triggers.toMutableList()
+                            list[index] = trigger.copy(params = mapOf("wifiName" to name))
+                            viewModel.autoTriggers.value = list
+                            editingTriggerIndex = null
+                        }
+                    )
+                }
+                TriggerType.BLUETOOTH_SPECIFIC_DEVICE -> {
+                    BluetoothConfigDialog(
+                        initialName = trigger.params["deviceName"] ?: "",
+                        onDismiss = { editingTriggerIndex = null },
+                        onConfirm = { name, address ->
+                            val list = triggers.toMutableList()
+                            list[index] = trigger.copy(params = buildMap {
+                                put("deviceName", name)
+                                if (!address.isNullOrBlank()) put("deviceAddress", address)
+                            })
+                            viewModel.autoTriggers.value = list
+                            editingTriggerIndex = null
+                        }
+                    )
+                }
+                TriggerType.APP_OPENED -> {
+                    AppPickerDialog(
+                        onDismiss = { editingTriggerIndex = null },
+                        onAppSelected = { pkg, name ->
+                            val list = triggers.toMutableList()
+                            list[index] = trigger.copy(params = mapOf("packageName" to pkg, "appName" to name))
+                            viewModel.autoTriggers.value = list
+                            editingTriggerIndex = null
+                        }
+                    )
+                }
+                TriggerType.APP_CLOSED -> {
+                    AppPickerDialog(
+                        onDismiss = { editingTriggerIndex = null },
+                        onAppSelected = { pkg, name ->
+                            val list = triggers.toMutableList()
+                            list[index] = trigger.copy(params = mapOf("packageName" to pkg, "appName" to name))
+                            viewModel.autoTriggers.value = list
+                            editingTriggerIndex = null
+                        }
+                    )
+                }
+                else -> {
+                    editingTriggerIndex = null
+                }
+            }
+        }
     }
 }

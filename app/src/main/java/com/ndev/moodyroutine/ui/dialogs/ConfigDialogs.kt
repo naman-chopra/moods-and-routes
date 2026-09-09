@@ -45,6 +45,7 @@ import androidx.core.graphics.drawable.toBitmap
 import com.google.android.gms.location.LocationServices
 import com.google.android.gms.location.Priority
 import com.ndev.moodyroutine.ui.theme.SamsungBlue
+import com.ndev.moodyroutine.ui.util.HumanFormatter
 import java.util.Locale
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
@@ -117,59 +118,99 @@ fun TimeConfigDialog(
                 // Days of week
                 Text("Repeat on", style = MaterialTheme.typography.titleSmall, modifier = Modifier.align(Alignment.Start))
                 val dayLabels = listOf(
-                    1 to "S", 2 to "M", 3 to "T", 4 to "W", 5 to "T", 6 to "F", 7 to "S"
+                    1 to ("S" to "Sun"),
+                    2 to ("M" to "Mon"),
+                    3 to ("T" to "Tue"),
+                    4 to ("W" to "Wed"),
+                    5 to ("T" to "Thu"),
+                    6 to ("F" to "Fri"),
+                    7 to ("S" to "Sat")
                 )
+
+                // Presets segmented bar
+                val allDaysTime = listOf(1, 2, 3, 4, 5, 6, 7)
+                val weekdaysTime = listOf(2, 3, 4, 5, 6)
+                val weekendsTime = listOf(1, 7)
+                val currentSortedTime = daysSet.sorted()
+
                 Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.SpaceBetween
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clip(RoundedCornerShape(14.dp))
+                        .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f))
+                        .padding(4.dp),
+                    horizontalArrangement = Arrangement.spacedBy(4.dp)
                 ) {
-                    dayLabels.forEach { (dayNum, label) ->
-                        val isSelected = daysSet.contains(dayNum)
+                    val presets = listOf(
+                        "Every day" to allDaysTime,
+                        "Weekdays" to weekdaysTime,
+                        "Weekends" to weekendsTime
+                    )
+                    presets.forEach { (label, days) ->
+                        val isSelected = currentSortedTime == days
                         Box(
                             modifier = Modifier
-                                .size(36.dp)
-                                .clip(CircleShape)
-                                .background(if (isSelected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.surfaceVariant)
+                                .weight(1f)
+                                .clip(RoundedCornerShape(10.dp))
+                                .background(if (isSelected) MaterialTheme.colorScheme.primary else Color.Transparent)
                                 .clickable {
-                                    if (isSelected) daysSet.remove(dayNum) else daysSet.add(dayNum)
-                                },
+                                    daysSet.clear()
+                                    daysSet.addAll(days)
+                                }
+                                .padding(vertical = 8.dp),
                             contentAlignment = Alignment.Center
                         ) {
                             Text(
                                 text = label,
-                                color = if (isSelected) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSurfaceVariant,
-                                fontWeight = FontWeight.Bold
+                                style = MaterialTheme.typography.labelMedium,
+                                fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium,
+                                color = if (isSelected) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSurfaceVariant
                             )
                         }
                     }
                 }
 
-                // Preset chips
                 Row(
                     modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    verticalAlignment = Alignment.CenterVertically
                 ) {
-                    AssistChip(
-                        onClick = {
-                            daysSet.clear()
-                            daysSet.addAll(listOf(1, 2, 3, 4, 5, 6, 7))
-                        },
-                        label = { Text("Every day") }
-                    )
-                    AssistChip(
-                        onClick = {
-                            daysSet.clear()
-                            daysSet.addAll(listOf(2, 3, 4, 5, 6))
-                        },
-                        label = { Text("Weekdays") }
-                    )
-                    AssistChip(
-                        onClick = {
-                            daysSet.clear()
-                            daysSet.addAll(listOf(1, 7))
-                        },
-                        label = { Text("Weekends") }
-                    )
+                    dayLabels.forEach { (dayNum, labels) ->
+                        val (letter, shortName) = labels
+                        val isSelected = daysSet.contains(dayNum)
+
+                        Column(
+                            horizontalAlignment = Alignment.CenterHorizontally,
+                            verticalArrangement = Arrangement.spacedBy(4.dp),
+                            modifier = Modifier
+                                .weight(1f)
+                                .clip(RoundedCornerShape(12.dp))
+                                .clickable {
+                                    if (isSelected) daysSet.remove(dayNum) else daysSet.add(dayNum)
+                                }
+                                .padding(vertical = 4.dp)
+                        ) {
+                            Box(
+                                modifier = Modifier
+                                    .size(34.dp)
+                                    .clip(CircleShape)
+                                    .background(if (isSelected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.surfaceVariant),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Text(
+                                    text = letter,
+                                    color = if (isSelected) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSurfaceVariant,
+                                    fontWeight = FontWeight.Bold,
+                                    fontSize = 14.sp
+                                )
+                            }
+                            Text(
+                                text = shortName,
+                                fontSize = 10.sp,
+                                fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal,
+                                color = if (isSelected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
+                    }
                 }
             }
         },
@@ -178,6 +219,320 @@ fun TimeConfigDialog(
                 onClick = {
                     val daysStr = if (daysSet.isEmpty()) "1,2,3,4,5,6,7" else daysSet.sorted().joinToString(",")
                     onConfirm(String.format("%02d:%02d", hour, minute), daysStr)
+                }
+            ) {
+                Text("Done")
+            }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) { Text("Cancel") }
+        }
+    )
+}
+
+@Composable
+fun DayOfWeekConfigDialog(
+    initialDays: String = "1,2,3,4,5,6,7",
+    onDismiss: () -> Unit,
+    onConfirm: (days: String) -> Unit
+) {
+    val daysSet = remember {
+        mutableStateListOf<Int>().apply {
+            val parsed = initialDays.split(",").mapNotNull { it.trim().toIntOrNull() }
+            if (parsed.isNotEmpty()) {
+                addAll(parsed)
+            } else {
+                addAll(listOf(1, 2, 3, 4, 5, 6, 7))
+            }
+        }
+    }
+
+    val allDays = listOf(1, 2, 3, 4, 5, 6, 7)
+    val weekdays = listOf(2, 3, 4, 5, 6)
+    val weekends = listOf(1, 7)
+
+    val currentSorted = daysSet.sorted()
+
+    val summaryText = if (daysSet.isEmpty()) {
+        "Select at least one day"
+    } else {
+        HumanFormatter.formatDays(currentSorted.joinToString(","))
+    }
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = {
+            Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                Text(
+                    text = "Specific days of week",
+                    style = MaterialTheme.typography.titleLarge,
+                    fontWeight = FontWeight.Bold
+                )
+                Text(
+                    text = summaryText,
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = if (daysSet.isEmpty()) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.primary,
+                    fontWeight = FontWeight.SemiBold
+                )
+            }
+        },
+        text = {
+            Column(
+                modifier = Modifier.fillMaxWidth(),
+                verticalArrangement = Arrangement.spacedBy(16.dp)
+            ) {
+                // Presets segmented bar
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clip(RoundedCornerShape(14.dp))
+                        .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f))
+                        .padding(4.dp),
+                    horizontalArrangement = Arrangement.spacedBy(4.dp)
+                ) {
+                    val presets = listOf(
+                        "Every day" to allDays,
+                        "Weekdays" to weekdays,
+                        "Weekends" to weekends
+                    )
+                    presets.forEach { (label, days) ->
+                        val isSelected = currentSorted == days
+                        Box(
+                            modifier = Modifier
+                                .weight(1f)
+                                .clip(RoundedCornerShape(10.dp))
+                                .background(if (isSelected) MaterialTheme.colorScheme.primary else Color.Transparent)
+                                .clickable {
+                                    daysSet.clear()
+                                    daysSet.addAll(days)
+                                }
+                                .padding(vertical = 8.dp),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Text(
+                                text = label,
+                                style = MaterialTheme.typography.labelMedium,
+                                fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium,
+                                color = if (isSelected) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
+                    }
+                }
+
+                // 7 circular day chips (One UI style: Sunday to Saturday)
+                val dayItems = listOf(
+                    1 to ("S" to "Sun"),
+                    2 to ("M" to "Mon"),
+                    3 to ("T" to "Tue"),
+                    4 to ("W" to "Wed"),
+                    5 to ("T" to "Thu"),
+                    6 to ("F" to "Fri"),
+                    7 to ("S" to "Sat")
+                )
+
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    dayItems.forEach { (dayNum, labels) ->
+                        val (letter, shortName) = labels
+                        val isSelected = daysSet.contains(dayNum)
+
+                        Column(
+                            horizontalAlignment = Alignment.CenterHorizontally,
+                            verticalArrangement = Arrangement.spacedBy(4.dp),
+                            modifier = Modifier
+                                .weight(1f)
+                                .clip(RoundedCornerShape(12.dp))
+                                .clickable {
+                                    if (isSelected) {
+                                        daysSet.remove(dayNum)
+                                    } else {
+                                        daysSet.add(dayNum)
+                                    }
+                                }
+                                .padding(vertical = 4.dp)
+                        ) {
+                            Box(
+                                modifier = Modifier
+                                    .size(34.dp)
+                                    .clip(CircleShape)
+                                    .background(
+                                        if (isSelected) MaterialTheme.colorScheme.primary
+                                        else MaterialTheme.colorScheme.surfaceVariant
+                                    ),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Text(
+                                    text = letter,
+                                    color = if (isSelected) MaterialTheme.colorScheme.onPrimary
+                                    else MaterialTheme.colorScheme.onSurfaceVariant,
+                                    fontWeight = FontWeight.Bold,
+                                    fontSize = 14.sp
+                                )
+                            }
+                            Text(
+                                text = shortName,
+                                fontSize = 10.sp,
+                                fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal,
+                                color = if (isSelected) MaterialTheme.colorScheme.primary
+                                else MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
+                    }
+                }
+            }
+        },
+        confirmButton = {
+            Button(
+                onClick = {
+                    val daysStr = daysSet.sorted().joinToString(",")
+                    onConfirm(daysStr)
+                },
+                enabled = daysSet.isNotEmpty()
+            ) {
+                Text("Done")
+            }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) {
+                Text("Cancel")
+            }
+        }
+    )
+}
+
+@Composable
+fun TimeRangeConfigDialog(
+    initialStartTime: String = "09:00",
+    initialEndTime: String = "17:00",
+    onDismiss: () -> Unit,
+    onConfirm: (startTime: String, endTime: String) -> Unit
+) {
+    val startParts = initialStartTime.split(":").mapNotNull { it.toIntOrNull() }
+    var startHour by remember { mutableIntStateOf(if (startParts.size >= 2) startParts[0] else 9) }
+    var startMinute by remember { mutableIntStateOf(if (startParts.size >= 2) startParts[1] else 0) }
+
+    val endParts = initialEndTime.split(":").mapNotNull { it.toIntOrNull() }
+    var endHour by remember { mutableIntStateOf(if (endParts.size >= 2) endParts[0] else 17) }
+    var endMinute by remember { mutableIntStateOf(if (endParts.size >= 2) endParts[1] else 0) }
+
+    var selectedTab by remember { mutableIntStateOf(0) }
+
+    val startStr = String.format("%02d:%02d", startHour, startMinute)
+    val endStr = String.format("%02d:%02d", endHour, endMinute)
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = {
+            Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                Text("Time Range", fontWeight = FontWeight.Bold)
+                Text(
+                    text = "$startStr – $endStr",
+                    style = MaterialTheme.typography.titleMedium,
+                    color = MaterialTheme.colorScheme.primary,
+                    fontWeight = FontWeight.SemiBold
+                )
+            }
+        },
+        text = {
+            Column(
+                modifier = Modifier.fillMaxWidth(),
+                verticalArrangement = Arrangement.spacedBy(16.dp)
+            ) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    FilterChip(
+                        selected = selectedTab == 0,
+                        onClick = { selectedTab = 0 },
+                        label = { Text("Start: $startStr") },
+                        modifier = Modifier.weight(1f)
+                    )
+                    FilterChip(
+                        selected = selectedTab == 1,
+                        onClick = { selectedTab = 1 },
+                        label = { Text("End: $endStr") },
+                        modifier = Modifier.weight(1f)
+                    )
+                }
+
+                val currentHour = if (selectedTab == 0) startHour else endHour
+                val currentMinute = if (selectedTab == 0) startMinute else endMinute
+
+                Text(
+                    text = if (selectedTab == 0) "Adjust start time: $startStr" else "Adjust end time: $endStr",
+                    style = MaterialTheme.typography.titleSmall,
+                    color = MaterialTheme.colorScheme.primary
+                )
+
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text("Hour: $currentHour", style = MaterialTheme.typography.bodyMedium)
+                    Slider(
+                        value = currentHour.toFloat(),
+                        onValueChange = {
+                            if (selectedTab == 0) startHour = it.toInt() else endHour = it.toInt()
+                        },
+                        valueRange = 0f..23f,
+                        steps = 22,
+                        modifier = Modifier.weight(1f).padding(horizontal = 8.dp)
+                    )
+                }
+
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text("Minute: $currentMinute", style = MaterialTheme.typography.bodyMedium)
+                    Slider(
+                        value = currentMinute.toFloat(),
+                        onValueChange = {
+                            if (selectedTab == 0) startMinute = it.toInt() else endMinute = it.toInt()
+                        },
+                        valueRange = 0f..59f,
+                        steps = 58,
+                        modifier = Modifier.weight(1f).padding(horizontal = 8.dp)
+                    )
+                }
+
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(6.dp)
+                ) {
+                    AssistChip(
+                        onClick = {
+                            startHour = 9; startMinute = 0
+                            endHour = 17; endMinute = 0
+                        },
+                        label = { Text("Work (9-5)", fontSize = 12.sp) }
+                    )
+                    AssistChip(
+                        onClick = {
+                            startHour = 6; startMinute = 0
+                            endHour = 12; endMinute = 0
+                        },
+                        label = { Text("Morning", fontSize = 12.sp) }
+                    )
+                    AssistChip(
+                        onClick = {
+                            startHour = 22; startMinute = 0
+                            endHour = 7; endMinute = 0
+                        },
+                        label = { Text("Night", fontSize = 12.sp) }
+                    )
+                }
+            }
+        },
+        confirmButton = {
+            Button(
+                onClick = {
+                    onConfirm(startStr, endStr)
                 }
             ) {
                 Text("Done")

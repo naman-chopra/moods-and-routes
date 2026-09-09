@@ -48,6 +48,34 @@ fun TriggerPickerSheet(
                 }
             )
         }
+        TriggerType.TIME_RANGE -> {
+            TimeRangeConfigDialog(
+                onDismiss = { configuringTriggerType = null },
+                onConfirm = { startTime, endTime ->
+                    onTriggerSelected(
+                        TriggerConfig(
+                            type = TriggerType.TIME_RANGE,
+                            params = mapOf("startTime" to startTime, "endTime" to endTime)
+                        )
+                    )
+                    configuringTriggerType = null
+                }
+            )
+        }
+        TriggerType.DAY_OF_WEEK -> {
+            DayOfWeekConfigDialog(
+                onDismiss = { configuringTriggerType = null },
+                onConfirm = { days ->
+                    onTriggerSelected(
+                        TriggerConfig(
+                            type = TriggerType.DAY_OF_WEEK,
+                            params = mapOf("days" to days)
+                        )
+                    )
+                    configuringTriggerType = null
+                }
+            )
+        }
         TriggerType.LOCATION_ARRIVE,
         TriggerType.LOCATION_LEAVE -> {
             OsmLocationPickerDialog(
@@ -236,6 +264,8 @@ fun TriggerPickerSheet(
                             onClick = {
                                 when (type) {
                                     TriggerType.TIME_OF_DAY,
+                                    TriggerType.TIME_RANGE,
+                                    TriggerType.DAY_OF_WEEK,
                                     TriggerType.LOCATION_ARRIVE,
                                     TriggerType.LOCATION_LEAVE,
                                     TriggerType.BATTERY_LEVEL,
