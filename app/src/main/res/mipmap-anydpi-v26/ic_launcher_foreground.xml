@@ -1,14 +1,50 @@
 <vector xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:aapt="http://schemas.android.com/aapt"
     android:width="108dp"
     android:height="108dp"
-    android:viewportWidth="108"
-    android:viewportHeight="108"
-    android:tint="#FFFFFF">
-    <!-- Simple "M" + gear icon representing Moody + Routine -->
+    android:viewportWidth="512"
+    android:viewportHeight="512">
+
+    <!-- Contour Layer 1 (Outer M) -->
     <path
-        android:fillColor="@android:color/white"
-        android:pathData="M54,28 C39.64,28 28,39.64 28,54 C28,68.36 39.64,80 54,80 C68.36,80 80,68.36 80,54 C80,39.64 68.36,28 54,28zM54,72 C44.06,72 36,63.94 36,54 C36,44.06 44.06,36 54,36 C63.94,36 72,44.06 72,54 C72,63.94 63.94,72 54,72z"/>
+        android:pathData="M120,370 L120,180 Q120,150 150,150 Q175,150 195,180 L256,270 L317,180 Q337,150 362,150 Q392,150 392,180 L392,370"
+        android:strokeColor="#3F3F46"
+        android:strokeWidth="12"
+        android:strokeLineCap="round"
+        android:strokeLineJoin="round"/>
+
+    <!-- Contour Layer 2 (Mid-Outer M) -->
     <path
-        android:fillColor="@android:color/white"
-        android:pathData="M42,50 L42,64 L47,64 L47,52 L51,58 L53,58 L57,52 L57,64 L62,64 L62,50 L58,50 L52,60 L46,50 Z"/>
+        android:pathData="M150,370 L150,205 Q150,185 168,185 Q185,185 200,205 L256,290 L312,205 Q327,185 344,185 Q362,185 362,205 L362,370"
+        android:strokeColor="#71717A"
+        android:strokeWidth="14"
+        android:strokeLineCap="round"
+        android:strokeLineJoin="round"/>
+
+    <!-- Contour Layer 3 (Primary Glowing M) -->
+    <path
+        android:pathData="M180,370 L180,230 Q180,215 195,215 Q210,215 220,230 L256,285 L292,230 Q302,215 317,215 Q332,215 332,230 L332,370"
+        android:strokeWidth="18"
+        android:strokeLineCap="round"
+        android:strokeLineJoin="round">
+        <aapt:attr name="android:strokeColor">
+            <gradient
+                android:startX="180"
+                android:startY="370"
+                android:endX="332"
+                android:endY="215"
+                android:type="linear">
+                <item android:offset="0" android:color="#FB923C"/>
+                <item android:offset="1" android:color="#EA580C"/>
+            </gradient>
+        </aapt:attr>
+    </path>
+
+    <!-- Summit / Waypoint Pin at Center Apex -->
+    <path
+        android:pathData="M256,275 A10,10 0 1,0 256,295 A10,10 0 1,0 256,275 Z"
+        android:fillColor="#FFFFFF"/>
+    <path
+        android:pathData="M256,280 A5,5 0 1,0 256,290 A5,5 0 1,0 256,280 Z"
+        android:fillColor="#EA580C"/>
 </vector>
