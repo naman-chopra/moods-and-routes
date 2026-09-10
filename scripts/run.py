@@ -111,8 +111,14 @@ def setup_release_signing():
     print("[SUCCESS] All 4 GitHub Secrets configured successfully!")
 
 def main():
-    print("[*] Device Helper ready.")
+    print("[*] Testing onboarding dialog with Modify System Settings...")
+    adb(f"shell pm clear {PKG}")
+    time.sleep(1.0)
+    adb(f"shell am start -n {PKG}/com.ndev.moodyroutine.MainActivity")
+    time.sleep(2.0)
+    print("[*] UI on fresh launch:")
     dump_ui()
+    screenshot("onboarding_with_write_settings.png")
 
 if __name__ == "__main__":
     main()

@@ -75,11 +75,16 @@ fun PermissionOnboardingDialog(
         return nm?.isNotificationPolicyAccessGranted == true
     }
 
+    fun checkWriteSettingsPermission(): Boolean {
+        return Settings.System.canWrite(context)
+    }
+
     var isNotificationGranted by remember { mutableStateOf(checkNotificationPermission()) }
     var isLocationGranted by remember { mutableStateOf(checkLocationPermission()) }
     var isBackgroundLocationGranted by remember { mutableStateOf(checkBackgroundLocationPermission()) }
     var isBatteryExempted by remember { mutableStateOf(checkBatteryOptimizationExemption()) }
     var isDndGranted by remember { mutableStateOf(checkDndPermission()) }
+    var isWriteSettingsGranted by remember { mutableStateOf(checkWriteSettingsPermission()) }
 
     var isAutoChaining by remember { mutableStateOf(false) }
 
@@ -91,6 +96,7 @@ fun PermissionOnboardingDialog(
                 isBackgroundLocationGranted = checkBackgroundLocationPermission()
                 isBatteryExempted = checkBatteryOptimizationExemption()
                 isDndGranted = checkDndPermission()
+                isWriteSettingsGranted = checkWriteSettingsPermission()
             }
         }
         lifecycleOwner.lifecycle.addObserver(observer)
@@ -184,6 +190,14 @@ fun PermissionOnboardingDialog(
         } else if (!isDndGranted) {
             try {
                 val intent = Intent(Settings.ACTION_NOTIFICATION_POLICY_ACCESS_SETTINGS)
+                context.startActivity(intent)
+            } catch (_: Exception) {}
+            isAutoChaining = false
+        } else if (!isWriteSettingsGranted) {
+            try {
+                val intent = Intent(Settings.ACTION_MANAGE_WRITE_SETTINGS).apply {
+                    data = Uri.parse("package:${context.packageName}")
+                }
                 context.startActivity(intent)
             } catch (_: Exception) {}
             isAutoChaining = false
@@ -319,6 +333,23 @@ fun PermissionOnboardingDialog(
                     onGrantClick = {
                         try {
                             val intent = Intent(Settings.ACTION_NOTIFICATION_POLICY_ACCESS_SETTINGS)
+                            context.startActivity(intent)
+                        } catch (_: Exception) {}
+                    }
+                )
+
+                // 5. Modify System Settings
+                PermissionItemRow(
+                    icon = Icons.Rounded.Tune,
+                    title = "Modify System Settings",
+                    description = "Required if your modes or routines adjust brightness, volume, or auto-rotation.",
+                    isGranted = isWriteSettingsGranted,
+                    actionText = "Settings",
+                    onGrantClick = {
+                        try {
+                            val intent = Intent(Settings.ACTION_MANAGE_WRITE_SETTINGS).apply {
+                                data = Uri.parse("package:${context.packageName}")
+                            }
                             context.startActivity(intent)
                         } catch (_: Exception) {}
                     }
