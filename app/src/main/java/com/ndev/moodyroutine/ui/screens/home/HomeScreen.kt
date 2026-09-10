@@ -181,8 +181,8 @@ fun HomeScreen(
     ) { padding ->
         Box(
             modifier = Modifier
-                .padding(padding)
                 .fillMaxSize()
+                .padding(top = padding.calculateTopPadding())
         ) {
             when (currentTab) {
                 MoodyTab.MODES -> {
@@ -437,7 +437,7 @@ fun ModesTabContent(
         }
 
         item {
-            Spacer(modifier = Modifier.height(96.dp))
+            Spacer(modifier = Modifier.height(130.dp))
         }
     }
 }
@@ -641,7 +641,7 @@ fun RoutinesTabContent(
             }
 
             item {
-                Spacer(modifier = Modifier.height(96.dp))
+                Spacer(modifier = Modifier.height(130.dp))
             }
         }
     }

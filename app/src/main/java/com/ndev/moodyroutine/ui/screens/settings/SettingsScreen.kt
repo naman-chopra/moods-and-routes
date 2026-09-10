@@ -295,7 +295,7 @@ fun SettingsContent(
             .fillMaxSize()
             .padding(horizontal = 20.dp),
         verticalArrangement = Arrangement.spacedBy(16.dp),
-        contentPadding = PaddingValues(vertical = 16.dp)
+        contentPadding = PaddingValues(top = 16.dp, bottom = 130.dp)
     ) {
         // Service Status Card
         item {

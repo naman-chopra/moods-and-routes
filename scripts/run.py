@@ -42,14 +42,21 @@ def tap(x, y):
     print(f"[*] Tapping ({x}, {y})...")
     adb(f"shell input tap {x} {y}")
 
-def tap_query(query):
+def tap_query(query, exact=False):
     print(f"[*] Searching for '{query}' in UI...")
     elements = dump_ui()
+    # First check exact matches on desc or text
     for el in elements:
-        if query.lower() in el["text"].lower() or query.lower() in el["desc"].lower():
-            print(f"[*] Found '{el['text'] or el['desc']}' at ({el['cx']}, {el['cy']})")
+        if query.lower() == (el["desc"] or "").lower() or query.lower() == (el["text"] or "").lower():
+            print(f"[*] Found exact '{el['text'] or el['desc']}' at ({el['cx']}, {el['cy']})")
             tap(el["cx"], el["cy"])
             return True
+    if not exact:
+        for el in elements:
+            if query.lower() in (el["text"] or "").lower() or query.lower() in (el["desc"] or "").lower():
+                print(f"[*] Found partial '{el['text'] or el['desc']}' at ({el['cx']}, {el['cy']})")
+                tap(el["cx"], el["cy"])
+                return True
     print(f"[WARN] Not found: '{query}'")
     return False
 
@@ -2100,42 +2107,48 @@ def test_theme_switcher():
                 time.sleep(1)
                 break
 
-    # Tap on Modes tab to be sure
-    print("[*] Checking Modes screen switches...")
-    tap(133, 1500)
+    # Check Modes screen with floating pill (expanded)
+    print("[*] Checking Modes screen with floating pill...")
     time.sleep(2)
-    screenshot("modes_orange_switches.png")
+    elements = dump_ui()
+    for el in elements:
+        if el["desc"] in ["Modes", "Routines", "Settings", "Collapse navigation bar", "Expand navigation bar"]:
+            print(f"  Nav item: desc='{el['desc']}' center=({el['cx']}, {el['cy']})")
 
-    # Tap on Routines tab
-    print("[*] Checking Routines screen switches...")
-    tap(352, 1500)
-    time.sleep(2)
-    screenshot("routines_orange_switches.png")
-
-    # Tap on Settings tab
-    print("[*] Navigating to Settings...")
-    tap(578, 1500)
-    time.sleep(2)
-
-    # Scroll incrementally until Theme Preset is visible
-    print("[*] Scrolling to find Theme Preset...")
-    for _ in range(6):
-        elements = dump_ui()
-        if any("theme preset" in el["text"].lower() for el in elements):
-            break
-        adb("shell input swipe 500 1100 500 750 250")
-        time.sleep(1)
-
+    # Tap Modes
+    print("[*] Tapping Modes tab...")
+    tap_query("Modes", exact=True) or tap(125, 1490)
     time.sleep(1)
-    screenshot("theme_picker_collapsed.png")
+    screenshot("bottom_bar_expanded_modes.png")
 
-    # Tap Theme Preset to expand
-    print("[*] Tapping Theme Preset to expand...")
-    tap_query("Theme Preset")
+    # Tap Routines
+    print("[*] Tapping Routines tab...")
+    tap_query("Routines", exact=True) or tap(315, 1490)
     time.sleep(1)
-    screenshot("theme_picker_expanded.png")
+    screenshot("bottom_bar_expanded_routines.png")
 
-    print("[SUCCESS] All screenshots captured!")
+    # Tap Settings
+    print("[*] Tapping Settings tab...")
+    tap_query("Settings", exact=True) or tap(505, 1490)
+    time.sleep(1)
+    screenshot("bottom_bar_expanded_settings.png")
+
+    # Tap Collapse button (>)
+    print("[*] Tapping Collapse button (>)...")
+    tap_query("Collapse navigation bar", exact=True) or tap(655, 1490)
+    time.sleep(1.5)
+    screenshot("bottom_bar_collapsed.png")
+
+    # Tap Expand button (<)
+    print("[*] Tapping Expand button (<)...")
+    tap_query("Expand navigation bar", exact=True) or tap(655, 1490)
+    time.sleep(1.5)
+    screenshot("bottom_bar_re_expanded.png")
+
+    # Copy to brain artifacts
+    subprocess.run("cp /tmp/bottom_bar_*.png /home/kratoes/.gemini/antigravity-cli/brain/62a5724a-2255-4747-8dce-08d7df130e7f/", shell=True)
+
+    print("[SUCCESS] All bottom bar screenshots captured and copied!")
 
 def main():
     test_theme_switcher()
