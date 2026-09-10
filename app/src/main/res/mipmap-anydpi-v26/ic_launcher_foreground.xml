@@ -8,7 +8,7 @@
     <!-- Contour Layer 1 (Outer M) -->
     <path
         android:pathData="M120,370 L120,180 Q120,150 150,150 Q175,150 195,180 L256,270 L317,180 Q337,150 362,150 Q392,150 392,180 L392,370"
-        android:strokeColor="#3F3F46"
+        android:strokeColor="#2A2A32"
         android:strokeWidth="12"
         android:strokeLineCap="round"
         android:strokeLineJoin="round"/>
@@ -34,8 +34,8 @@
                 android:endX="332"
                 android:endY="215"
                 android:type="linear">
-                <item android:offset="0" android:color="#FB923C"/>
-                <item android:offset="1" android:color="#EA580C"/>
+                <item android:offset="0" android:color="#FF6838"/>
+                <item android:offset="1" android:color="#FF3B00"/>
             </gradient>
         </aapt:attr>
     </path>
@@ -46,5 +46,5 @@
         android:fillColor="#FFFFFF"/>
     <path
         android:pathData="M256,280 A5,5 0 1,0 256,290 A5,5 0 1,0 256,280 Z"
-        android:fillColor="#EA580C"/>
+        android:fillColor="#FF3B00"/>
 </vector>

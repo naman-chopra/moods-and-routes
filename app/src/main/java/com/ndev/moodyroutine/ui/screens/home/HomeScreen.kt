@@ -427,7 +427,8 @@ fun ModesTabContent(
                             onCheckedChange = { onModeToggle(mode, it) },
                             colors = SwitchDefaults.colors(
                                 checkedThumbColor = Color.White,
-                                checkedTrackColor = modeColor
+                                checkedTrackColor = MaterialTheme.colorScheme.primary,
+                                checkedBorderColor = Color.Transparent
                             )
                         )
                     }
@@ -627,7 +628,12 @@ fun RoutinesTabContent(
                         if (!isSelectionActive) {
                             Switch(
                                 checked = routine.isEnabled,
-                                onCheckedChange = { onRoutineToggle(routine, it) }
+                                onCheckedChange = { onRoutineToggle(routine, it) },
+                                colors = SwitchDefaults.colors(
+                                    checkedThumbColor = Color.White,
+                                    checkedTrackColor = MaterialTheme.colorScheme.primary,
+                                    checkedBorderColor = Color.Transparent
+                                )
                             )
                         }
                     }

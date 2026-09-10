@@ -215,8 +215,8 @@ fun PermissionOnboardingDialog(
     ) {
         Surface(
             shape = RoundedCornerShape(28.dp),
-            color = MaterialTheme.colorScheme.surface,
-            tonalElevation = 6.dp,
+            color = MaterialTheme.colorScheme.surfaceContainerLowest,
+            tonalElevation = 0.dp,
             modifier = Modifier
                 .fillMaxWidth(0.92f)
                 .wrapContentHeight()
