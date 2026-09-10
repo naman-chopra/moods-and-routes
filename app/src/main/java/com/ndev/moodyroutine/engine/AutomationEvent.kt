@@ -2,7 +2,7 @@ package com.ndev.moodyroutine.engine
 
 sealed class AutomationEvent {
     data class TimeEvent(val hour: Int, val minute: Int, val dayOfWeek: Int) : AutomationEvent()
-    data class LocationEvent(val locationName: String, val isEntering: Boolean, val latitude: Double? = null, val longitude: Double? = null) : AutomationEvent()
+    data class LocationEvent(val locationName: String, val isEntering: Boolean, val latitude: Double? = null, val longitude: Double? = null, val isInitial: Boolean = false) : AutomationEvent()
     data class BatteryEvent(val level: Int, val isCharging: Boolean) : AutomationEvent()
     data class WifiEvent(val isConnected: Boolean, val ssid: String?) : AutomationEvent()
     data class BluetoothEvent(val isConnected: Boolean, val deviceName: String?, val deviceAddress: String?) : AutomationEvent()

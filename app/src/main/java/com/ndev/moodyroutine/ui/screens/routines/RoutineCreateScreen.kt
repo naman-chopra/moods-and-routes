@@ -679,7 +679,10 @@ fun RoutineCreateScreen(
                 TriggerType.LOCATION_LEAVE -> {
                     OsmLocationPickerDialog(
                         initialIsArrive = trigger.type == TriggerType.LOCATION_ARRIVE,
-                        initialLocationName = trigger.params["locationName"] ?: "Home",
+                        initialLocationName = trigger.params["locationName"] ?: "",
+                        initialAddress = trigger.params["address"] ?: "",
+                        initialLatitude = trigger.params["latitude"]?.toDoubleOrNull(),
+                        initialLongitude = trigger.params["longitude"]?.toDoubleOrNull(),
                         initialRadius = trigger.params["radius"]?.toIntOrNull() ?: 150,
                         onDismiss = { editingTriggerIndex = null },
                         onConfirm = { isArrive, name, address, lat, lng, radius ->

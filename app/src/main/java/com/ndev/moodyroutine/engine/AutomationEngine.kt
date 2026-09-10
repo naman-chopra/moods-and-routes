@@ -7,6 +7,12 @@ import com.ndev.moodyroutine.data.model.TriggerType
 import com.ndev.moodyroutine.data.repository.ModeRepository
 import com.ndev.moodyroutine.data.repository.RoutineRepository
 import com.ndev.moodyroutine.util.AppLogger
+import android.content.Intent
+import android.content.IntentFilter
+import android.net.ConnectivityManager
+import android.net.NetworkCapabilities
+import android.os.BatteryManager
+import com.ndev.moodyroutine.service.LocationTracker
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -19,7 +25,8 @@ class AutomationEngine(
     private val routineRepository: RoutineRepository,
     private val modeRepository: ModeRepository,
     private val conditionEvaluator: ConditionEvaluator,
-    private val actionExecutor: ActionExecutor
+    private val actionExecutor: ActionExecutor,
+    private val locationTrackerProvider: (() -> LocationTracker?)? = null
 ) {
     private var job: Job? = null
     private val scope = CoroutineScope(Dispatchers.Default)
@@ -29,7 +36,7 @@ class AutomationEngine(
         if (job != null) return
         job = scope.launch {
             AppLogger.i("AutomationEngine", "AutomationEngine started")
-            EventBus.events.collectLatest { event ->
+            EventBus.events.collect { event ->
                 AppLogger.d("AutomationEngine", "Received event: $event")
                 try {
                     processEventForRoutines(event)
@@ -76,6 +83,9 @@ class AutomationEngine(
 
             // 2. Evaluate triggers
             if (!exitMatched) {
+                if (event is AutomationEvent.LocationEvent && event.isInitial) {
+                    continue
+                }
                 var shouldExecute = false
                 val satisfiedIndices = activeTriggers.getOrPut(routine.id) { mutableSetOf() }
 
@@ -253,23 +263,53 @@ class AutomationEngine(
     }
 
     private fun isLocationMatch(event: AutomationEvent.LocationEvent, trigger: TriggerConfig, modeName: String): Boolean {
-        val configuredName = trigger.params["locationName"] ?: ""
-        if (configuredName.isNotBlank()) {
-            if (event.locationName.contains(configuredName, ignoreCase = true) ||
-                configuredName.contains(event.locationName, ignoreCase = true)) {
-                return true
+        val trigLat = trigger.params["latitude"]?.toDoubleOrNull()
+        val trigLng = trigger.params["longitude"]?.toDoubleOrNull()
+        val trigRad = trigger.params["radius"]?.toFloatOrNull() ?: 150f
+
+        if (trigLat != null && trigLng != null && event.latitude != null && event.longitude != null) {
+            val results = FloatArray(1)
+            android.location.Location.distanceBetween(event.latitude, event.longitude, trigLat, trigLng, results)
+            if (results[0] > trigRad + 1000f) {
+                return false
             }
         }
-        if (event.locationName.contains(modeName, ignoreCase = true) ||
-            modeName.contains(event.locationName, ignoreCase = true)) {
-            return true
+
+        val configuredName = trigger.params["locationName"] ?: ""
+        if (configuredName.isNotBlank()) {
+            return event.locationName.contains(configuredName, ignoreCase = true) ||
+                    configuredName.contains(event.locationName, ignoreCase = true)
         }
-        if (configuredName.isBlank()) return true
+        if (modeName.isNotBlank()) {
+            return event.locationName.contains(modeName, ignoreCase = true) ||
+                    modeName.contains(event.locationName, ignoreCase = true)
+        }
         return false
     }
 
     private fun isTriggerCurrentlySatisfied(trigger: TriggerConfig): Boolean {
         return when (trigger.type) {
+            TriggerType.LOCATION_ARRIVE -> {
+                val lat = trigger.params["latitude"]?.toDoubleOrNull() ?: return false
+                val lng = trigger.params["longitude"]?.toDoubleOrNull() ?: return false
+                val rad = trigger.params["radius"]?.toFloatOrNull() ?: 150f
+                locationTrackerProvider?.invoke()?.isInside(lat, lng, rad) ?: false
+            }
+            TriggerType.WIFI_CONNECTED -> {
+                val cm = context.getSystemService(Context.CONNECTIVITY_SERVICE) as? ConnectivityManager
+                val caps = cm?.getNetworkCapabilities(cm.activeNetwork)
+                caps?.hasTransport(NetworkCapabilities.TRANSPORT_WIFI) == true
+            }
+            TriggerType.POWER_CONNECTED, TriggerType.BATTERY_CHARGING -> {
+                val intent = context.registerReceiver(null, IntentFilter(Intent.ACTION_BATTERY_CHANGED))
+                val status = intent?.getIntExtra(BatteryManager.EXTRA_STATUS, -1) ?: -1
+                status == BatteryManager.BATTERY_STATUS_CHARGING || status == BatteryManager.BATTERY_STATUS_FULL
+            }
+            TriggerType.HEADPHONE_CONNECTED -> {
+                val am = context.getSystemService(Context.AUDIO_SERVICE) as? android.media.AudioManager
+                @Suppress("DEPRECATION")
+                (am?.isWiredHeadsetOn == true || am?.isBluetoothA2dpOn == true)
+            }
             TriggerType.TIME_RANGE -> {
                 val startTime = trigger.params["startTime"] ?: return false
                 val endTime = trigger.params["endTime"] ?: return false
@@ -290,7 +330,30 @@ class AutomationEngine(
                 val currentDay = cal.get(java.util.Calendar.DAY_OF_WEEK)
                 days.contains(currentDay)
             }
-            else -> true
+            TriggerType.TIME_OF_DAY -> {
+                val timeStr = trigger.params["time"]
+                val (hour, minute) = if (timeStr != null && timeStr.contains(":")) {
+                    val parts = timeStr.split(":")
+                    Pair(parts[0].toIntOrNull(), parts[1].toIntOrNull())
+                } else {
+                    Pair(trigger.params["hour"]?.toIntOrNull(), trigger.params["minute"]?.toIntOrNull())
+                }
+                if (hour == null || minute == null) return false
+                val cal = java.util.Calendar.getInstance()
+                val currentHour = cal.get(java.util.Calendar.HOUR_OF_DAY)
+                val currentMinute = cal.get(java.util.Calendar.MINUTE)
+                if (currentHour != hour || currentMinute != minute) return false
+
+                val daysStr = trigger.params["days"]
+                if (!daysStr.isNullOrBlank()) {
+                    val days = daysStr.split(",").mapNotNull { it.trim().toIntOrNull() }
+                    if (days.isNotEmpty() && !days.contains(cal.get(java.util.Calendar.DAY_OF_WEEK))) {
+                        return false
+                    }
+                }
+                true
+            }
+            else -> false
         }
     }
 

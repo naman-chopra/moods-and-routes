@@ -28,6 +28,9 @@ class LocationTracker(private val context: Context) {
     private val fusedLocationClient = LocationServices.getFusedLocationProviderClient(context)
     private val scope = CoroutineScope(Dispatchers.IO)
     private var isTracking = false
+    private var hasInitialFix = false
+    var lastKnownLocation: Location? = null
+        private set
 
     private val insideTargets = mutableSetOf<String>()
     private var targets = listOf<LocationTarget>()
@@ -103,6 +106,7 @@ class LocationTracker(private val context: Context) {
     fun startTracking() {
         if (isTracking) return
         try {
+            hasInitialFix = false
             val locationRequest = LocationRequest.Builder(
                 Priority.PRIORITY_BALANCED_POWER_ACCURACY,
                 30_000L
@@ -121,7 +125,7 @@ class LocationTracker(private val context: Context) {
 
             // Immediate check with last location
             fusedLocationClient.lastLocation.addOnSuccessListener { loc ->
-                if (loc != null) checkLocation(loc)
+                if (loc != null) checkLocation(loc, isExplicitInitial = true)
             }
         } catch (e: SecurityException) {
             AppLogger.e("LocationTracker", "Location permission missing in LocationTracker", e)
@@ -132,10 +136,16 @@ class LocationTracker(private val context: Context) {
         if (!isTracking) return
         fusedLocationClient.removeLocationUpdates(locationCallback)
         isTracking = false
+        hasInitialFix = false
+        insideTargets.clear()
         AppLogger.i("LocationTracker", "LocationTracker stopped")
     }
 
-    private fun checkLocation(currentLocation: Location) {
+    private fun checkLocation(currentLocation: Location, isExplicitInitial: Boolean = false) {
+        lastKnownLocation = currentLocation
+        val isInitial = isExplicitInitial || !hasInitialFix
+        hasInitialFix = true
+
         val results = FloatArray(1)
         for (target in targets) {
             Location.distanceBetween(
@@ -151,14 +161,15 @@ class LocationTracker(private val context: Context) {
 
             if (isInside && !wasInside) {
                 insideTargets.add(target.id)
-                AppLogger.i("LocationTracker", "LocationTracker: ENTERED ${target.name} (dist=${distance.toInt()}m <= ${target.radiusMeters.toInt()}m)")
+                AppLogger.i("LocationTracker", "LocationTracker: ENTERED ${target.name} (dist=${distance.toInt()}m <= ${target.radiusMeters.toInt()}m, initial=$isInitial)")
                 scope.launch {
                     EventBus.emit(
                         AutomationEvent.LocationEvent(
                             locationName = target.name,
                             isEntering = true,
                             latitude = currentLocation.latitude,
-                            longitude = currentLocation.longitude
+                            longitude = currentLocation.longitude,
+                            isInitial = isInitial
                         )
                     )
                 }
@@ -171,11 +182,19 @@ class LocationTracker(private val context: Context) {
                             locationName = target.name,
                             isEntering = false,
                             latitude = currentLocation.latitude,
-                            longitude = currentLocation.longitude
+                            longitude = currentLocation.longitude,
+                            isInitial = false
                         )
                     )
                 }
             }
         }
+    }
+
+    fun isInside(latitude: Double, longitude: Double, radiusMeters: Float): Boolean {
+        val loc = lastKnownLocation ?: return false
+        val results = FloatArray(1)
+        Location.distanceBetween(loc.latitude, loc.longitude, latitude, longitude, results)
+        return results[0] <= radiusMeters
     }
 }

@@ -147,6 +147,7 @@ class AutomationService : Service() {
 
     override fun onCreate() {
         super.onCreate()
+        GeofenceReceiver.serviceStartTime = System.currentTimeMillis()
         AppLogger.i("AutomationService", "AutomationService created")
         createNotificationChannel()
         val notification = NotificationCompat.Builder(this, "moody_routine_service")
@@ -171,7 +172,8 @@ class AutomationService : Service() {
             routineRepository = routineRepo,
             modeRepository = modeRepo,
             conditionEvaluator = ConditionEvaluator(),
-            actionExecutor = actionExec
+            actionExecutor = actionExec,
+            locationTrackerProvider = { locationTracker }
         )
         engine?.start()
 
@@ -506,6 +508,7 @@ class AutomationService : Service() {
     override fun onDestroy() {
         super.onDestroy()
         engine?.stop()
+        geofenceManager?.removeAllGeofences()
         locationTracker?.stopTracking()
         timeTickerJob?.cancel()
         appTrackerJob?.cancel()

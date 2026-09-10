@@ -2,9 +2,12 @@ package com.ndev.moodyroutine.ui.components
 
 import android.Manifest
 import android.content.Context
+import android.content.pm.PackageManager
 import android.location.Geocoder
+import android.view.MotionEvent
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.core.content.ContextCompat
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.animateContentSize
 import androidx.compose.animation.core.animateDpAsState
@@ -83,14 +86,43 @@ private object OsmGeocoderHelper {
 
     suspend fun searchPlaces(context: Context, query: String): List<OsmPlaceSuggestion> = withContext(Dispatchers.IO) {
         if (query.isBlank()) return@withContext emptyList()
-        // 1. Try OpenStreetMap Nominatim
+
+        // 1. Try native Android Geocoder first (backed by Google Play Services, fast)
+        try {
+            if (Geocoder.isPresent()) {
+                val geocoder = Geocoder(context, Locale.getDefault())
+                @Suppress("DEPRECATION")
+                val addresses = geocoder.getFromLocationName(query, 5)
+                if (!addresses.isNullOrEmpty()) {
+                    return@withContext addresses.map { addr ->
+                        val full = addr.getAddressLine(0) ?: ""
+                        val title = addr.featureName?.takeIf { it.isNotBlank() && it != addr.postalCode }
+                            ?: addr.subLocality
+                            ?: addr.locality
+                            ?: full.split(",").firstOrNull()?.trim()
+                            ?: query
+                        OsmPlaceSuggestion(
+                            title = title,
+                            subtitle = full,
+                            latitude = addr.latitude,
+                            longitude = addr.longitude
+                        )
+                    }
+                }
+            }
+        } catch (e: Exception) {
+            if (e is kotlinx.coroutines.CancellationException) throw e
+            android.util.Log.w("OsmGeocoderHelper", "Native Geocoder search failed: ${e.message}")
+        }
+
+        // 2. Fallback to OpenStreetMap Nominatim
         try {
             val encoded = URLEncoder.encode(query.trim(), "UTF-8")
             val url = URL("https://nominatim.openstreetmap.org/search?q=$encoded&format=json&addressdetails=1&limit=5")
             val conn = (url.openConnection() as HttpURLConnection).apply {
                 setRequestProperty("User-Agent", USER_AGENT)
-                connectTimeout = 4000
-                readTimeout = 4000
+                connectTimeout = 3000
+                readTimeout = 3000
             }
             if (conn.responseCode == 200) {
                 val jsonStr = conn.inputStream.bufferedReader().use { it.readText() }
@@ -109,35 +141,50 @@ private object OsmGeocoderHelper {
                     return@withContext list
                 }
             }
-        } catch (_: Exception) {}
-
-        // 2. Fallback to native Android Geocoder
-        try {
-            val geocoder = Geocoder(context, Locale.getDefault())
-            val addresses = geocoder.getFromLocationName(query, 5)
-            if (!addresses.isNullOrEmpty()) {
-                return@withContext addresses.map { addr ->
-                    OsmPlaceSuggestion(
-                        title = addr.featureName ?: query,
-                        subtitle = addr.getAddressLine(0) ?: "",
-                        latitude = addr.latitude,
-                        longitude = addr.longitude
-                    )
-                }
-            }
-        } catch (_: Exception) {}
+        } catch (e: Exception) {
+            if (e is kotlinx.coroutines.CancellationException) throw e
+            android.util.Log.w("OsmGeocoderHelper", "Nominatim search failed: ${e.message}")
+        }
 
         emptyList()
     }
 
     suspend fun reverseGeocode(context: Context, lat: Double, lon: Double): Pair<String, String>? = withContext(Dispatchers.IO) {
-        // 1. Try OpenStreetMap Nominatim
+        // 1. Try native Geocoder first (Google Play Services backed, instant)
+        try {
+            if (Geocoder.isPresent()) {
+                val geocoder = Geocoder(context, Locale.getDefault())
+                @Suppress("DEPRECATION")
+                val addresses = geocoder.getFromLocation(lat, lon, 1)
+                if (!addresses.isNullOrEmpty()) {
+                    val addr = addresses[0]
+                    val full = addr.getAddressLine(0) ?: ""
+                    val plusCodeRegex = Regex("^[A-Z0-9]{4,8}\\+[A-Z0-9]+$")
+                    val feature = addr.featureName?.takeIf {
+                        it.isNotBlank() && it != addr.postalCode && it != addr.subThoroughfare && !it.matches(plusCodeRegex)
+                    }
+                        ?: addr.subLocality
+                        ?: addr.locality
+                        ?: full.split(",").map { it.trim() }.firstOrNull { it.isNotBlank() && !it.matches(plusCodeRegex) }
+                        ?: full.split(",").firstOrNull()?.trim()
+                        ?: "Selected Location"
+                    if (full.isNotBlank()) {
+                        return@withContext Pair(feature, full)
+                    }
+                }
+            }
+        } catch (e: Exception) {
+            if (e is kotlinx.coroutines.CancellationException) throw e
+            android.util.Log.w("OsmGeocoderHelper", "Native reverse geocode failed: ${e.message}")
+        }
+
+        // 2. Fallback to OpenStreetMap Nominatim
         try {
             val url = URL("https://nominatim.openstreetmap.org/reverse?lat=$lat&lon=$lon&format=json")
             val conn = (url.openConnection() as HttpURLConnection).apply {
                 setRequestProperty("User-Agent", USER_AGENT)
-                connectTimeout = 4000
-                readTimeout = 4000
+                connectTimeout = 3000
+                readTimeout = 3000
             }
             if (conn.responseCode == 200) {
                 val jsonStr = conn.inputStream.bufferedReader().use { it.readText() }
@@ -150,23 +197,15 @@ private object OsmGeocoderHelper {
                         ?: addr?.optString("neighbourhood")?.takeIf { it.isNotBlank() }
                         ?: addr?.optString("road")?.takeIf { it.isNotBlank() }
                         ?: addr?.optString("city")?.takeIf { it.isNotBlank() }
+                        ?: displayName.split(",").firstOrNull()?.trim()
                         ?: "Selected Location"
                 }
                 return@withContext Pair(feature, displayName)
             }
-        } catch (_: Exception) {}
-
-        // 2. Fallback to native Geocoder
-        try {
-            val geocoder = Geocoder(context, Locale.getDefault())
-            val addresses = geocoder.getFromLocation(lat, lon, 1)
-            if (!addresses.isNullOrEmpty()) {
-                val addr = addresses[0]
-                val full = addr.getAddressLine(0) ?: ""
-                val feature = addr.featureName ?: addr.subLocality ?: addr.locality ?: "Selected Location"
-                return@withContext Pair(feature, full)
-            }
-        } catch (_: Exception) {}
+        } catch (e: Exception) {
+            if (e is kotlinx.coroutines.CancellationException) throw e
+            android.util.Log.w("OsmGeocoderHelper", "Nominatim reverse geocode failed: ${e.message}")
+        }
 
         null
     }
@@ -176,7 +215,10 @@ private object OsmGeocoderHelper {
 @Composable
 fun OsmLocationPickerDialog(
     initialIsArrive: Boolean = true,
-    initialLocationName: String = "Home",
+    initialLocationName: String = "",
+    initialAddress: String = "",
+    initialLatitude: Double? = null,
+    initialLongitude: Double? = null,
     initialRadius: Int = 150,
     onDismiss: () -> Unit,
     onConfirm: (isArrive: Boolean, locationName: String, address: String, latitude: Double, longitude: Double, radius: Int) -> Unit
@@ -190,10 +232,22 @@ fun OsmLocationPickerDialog(
         Configuration.getInstance().userAgentValue = context.packageName
     }
 
+    val hasExplicitInitialLocation = initialLatitude != null && initialLongitude != null && (initialLatitude != 0.0 || initialLongitude != 0.0)
+    var userTouchedMap by remember { mutableStateOf(false) }
+    var isProgrammaticMove by remember { mutableStateOf(false) }
+
     var isArrive by remember { mutableStateOf(initialIsArrive) }
     var locationName by remember { mutableStateOf(initialLocationName) }
-    var addressText by remember { mutableStateOf("") }
-    var currentGeoPoint by remember { mutableStateOf(GeoPoint(28.6139, 77.2090)) } // default center
+    var customNameOverride by remember { mutableStateOf<String?>(null) }
+    var showRenameDialog by remember { mutableStateOf(false) }
+    var tempRenameText by remember { mutableStateOf("") }
+    var addressText by remember { mutableStateOf(initialAddress) }
+    var currentGeoPoint by remember {
+        mutableStateOf(
+            if (hasExplicitInitialLocation) GeoPoint(initialLatitude!!, initialLongitude!!)
+            else GeoPoint(28.6139, 77.2090)
+        )
+    }
     var radius by remember { mutableIntStateOf(initialRadius) }
 
     var searchQuery by remember { mutableStateOf("") }
@@ -225,19 +279,70 @@ fun OsmLocationPickerDialog(
         map.invalidate()
     }
 
-    fun triggerReverseGeocode(point: GeoPoint) {
+    fun triggerReverseGeocode(point: GeoPoint, immediate: Boolean = false) {
+        if (isSelectingSuggestion) return
         reverseGeocodeJob?.cancel()
         reverseGeocodeJob = coroutineScope.launch {
-            delay(350) // debounce
+            if (!immediate) {
+                delay(400) // debounce
+            }
             val result = OsmGeocoderHelper.reverseGeocode(context, point.latitude, point.longitude)
             if (result != null) {
                 addressText = result.second
-                if (locationName.isBlank() || locationName == "Home" || locationName == "Work" || locationName == "Selected Location") {
-                    locationName = result.first
-                }
+                locationName = result.first
             } else {
-                addressText = "${String.format(Locale.US, "%.4f", point.latitude)}°, ${String.format(Locale.US, "%.4f", point.longitude)}°"
+                val coordsText = "${String.format(Locale.US, "%.5f", point.latitude)}°, ${String.format(Locale.US, "%.5f", point.longitude)}°"
+                addressText = coordsText
+                locationName = coordsText
             }
+        }
+    }
+
+    fun locateCurrentPosition(isUserExplicit: Boolean = false) {
+        isLocating = true
+        try {
+            // Fast path: use last known location immediately if available
+            fusedLocationClient.lastLocation.addOnSuccessListener { lastLoc ->
+                if (lastLoc != null && (!userTouchedMap || isUserExplicit)) {
+                    val pt = GeoPoint(lastLoc.latitude, lastLoc.longitude)
+                    currentGeoPoint = pt
+                    isProgrammaticMove = true
+                    mapViewRef?.let { map ->
+                        map.controller.setCenter(pt)
+                        map.controller.setZoom(16.5)
+                        updateMapCircle(map, pt, radius)
+                    }
+                    triggerReverseGeocode(pt, immediate = true)
+                    coroutineScope.launch {
+                        delay(800)
+                        isProgrammaticMove = false
+                    }
+                }
+            }
+
+            // Fresh accurate location
+            fusedLocationClient.getCurrentLocation(Priority.PRIORITY_HIGH_ACCURACY, null)
+                .addOnSuccessListener { loc ->
+                    isLocating = false
+                    if (loc != null && (!userTouchedMap || isUserExplicit)) {
+                        val newPoint = GeoPoint(loc.latitude, loc.longitude)
+                        currentGeoPoint = newPoint
+                        isProgrammaticMove = true
+                        mapViewRef?.let { map ->
+                            map.controller.setCenter(newPoint)
+                            map.controller.setZoom(16.5)
+                            updateMapCircle(map, newPoint, radius)
+                        }
+                        triggerReverseGeocode(newPoint, immediate = true)
+                        coroutineScope.launch {
+                            delay(800)
+                            isProgrammaticMove = false
+                        }
+                    }
+                }
+                .addOnFailureListener { isLocating = false }
+        } catch (_: SecurityException) {
+            isLocating = false
         }
     }
 
@@ -247,36 +352,28 @@ fun OsmLocationPickerDialog(
         val granted = perms[Manifest.permission.ACCESS_FINE_LOCATION] == true ||
                 perms[Manifest.permission.ACCESS_COARSE_LOCATION] == true
         if (granted) {
-            isLocating = true
-            try {
-                fusedLocationClient.getCurrentLocation(Priority.PRIORITY_HIGH_ACCURACY, null)
-                    .addOnSuccessListener { loc ->
-                        isLocating = false
-                        if (loc != null) {
-                            val newPoint = GeoPoint(loc.latitude, loc.longitude)
-                            currentGeoPoint = newPoint
-                            mapViewRef?.let { map ->
-                                map.controller.animateTo(newPoint, 16.5, 800L)
-                                updateMapCircle(map, newPoint, radius)
-                            }
-                            triggerReverseGeocode(newPoint)
-                        }
-                    }
-                    .addOnFailureListener { isLocating = false }
-            } catch (e: SecurityException) {
-                isLocating = false
-            }
+            locateCurrentPosition(isUserExplicit = true)
         }
     }
 
-    // Auto-locate GPS position on launch
+    // Auto-locate GPS position on launch ONLY if no initial location was provided
     LaunchedEffect(Unit) {
-        locationPermissionLauncher.launch(
-            arrayOf(
-                Manifest.permission.ACCESS_FINE_LOCATION,
-                Manifest.permission.ACCESS_COARSE_LOCATION
-            )
-        )
+        if (!hasExplicitInitialLocation) {
+            val hasFine = ContextCompat.checkSelfPermission(context, Manifest.permission.ACCESS_FINE_LOCATION) == PackageManager.PERMISSION_GRANTED
+            val hasCoarse = ContextCompat.checkSelfPermission(context, Manifest.permission.ACCESS_COARSE_LOCATION) == PackageManager.PERMISSION_GRANTED
+            if (hasFine || hasCoarse) {
+                locateCurrentPosition(isUserExplicit = false)
+            } else {
+                locationPermissionLauncher.launch(
+                    arrayOf(
+                        Manifest.permission.ACCESS_FINE_LOCATION,
+                        Manifest.permission.ACCESS_COARSE_LOCATION
+                    )
+                )
+            }
+        } else if (initialAddress.isBlank()) {
+            triggerReverseGeocode(currentGeoPoint, immediate = true)
+        }
     }
 
     // Re-draw circle when radius or arrive/leave mode changes
@@ -306,7 +403,7 @@ fun OsmLocationPickerDialog(
         properties = DialogProperties(usePlatformDefaultWidth = false)
     ) {
         val fabBottomPadding by animateDpAsState(
-            targetValue = if (isDrawerExpanded) 364.dp else 144.dp,
+            targetValue = if (isDrawerExpanded) 430.dp else 140.dp,
             label = "fabPadding"
         )
 
@@ -322,14 +419,27 @@ fun OsmLocationPickerDialog(
                             controller.setZoom(16.0)
                             controller.setCenter(currentGeoPoint)
 
+                            setOnTouchListener { _, event ->
+                                if (event.action == MotionEvent.ACTION_DOWN) {
+                                    userTouchedMap = true
+                                }
+                                false
+                            }
+
                             // Tap anywhere to re-center map to that spot
                             val eventsReceiver = object : MapEventsReceiver {
                                 override fun singleTapConfirmedHelper(p: GeoPoint?): Boolean {
                                     p ?: return false
+                                    userTouchedMap = true
                                     currentGeoPoint = p
+                                    isProgrammaticMove = true
                                     controller.animateTo(p, zoomLevelDouble, 400L)
                                     updateMapCircle(this@apply, p, radius)
-                                    triggerReverseGeocode(p)
+                                    triggerReverseGeocode(p, immediate = true)
+                                    coroutineScope.launch {
+                                        delay(800)
+                                        isProgrammaticMove = false
+                                    }
                                     isInfoExpanded = false
                                     return true
                                 }
@@ -341,14 +451,18 @@ fun OsmLocationPickerDialog(
                             // Pan / Scroll listener: update center & circle
                             val listener = object : MapListener {
                                 override fun onScroll(event: ScrollEvent?): Boolean {
+                                    if (isProgrammaticMove || isSelectingSuggestion) return false
+                                    if (!userTouchedMap && !hasExplicitInitialLocation) return false
                                     val center = mapCenter as? GeoPoint ?: return false
                                     currentGeoPoint = center
                                     updateMapCircle(this@apply, center, radius)
-                                    triggerReverseGeocode(center)
+                                    triggerReverseGeocode(center, immediate = false)
                                     return false
                                 }
 
                                 override fun onZoom(event: ZoomEvent?): Boolean {
+                                    if (isProgrammaticMove || isSelectingSuggestion) return false
+                                    if (!userTouchedMap && !hasExplicitInitialLocation) return false
                                     val center = mapCenter as? GeoPoint ?: return false
                                     currentGeoPoint = center
                                     updateMapCircle(this@apply, center, radius)
@@ -517,20 +631,27 @@ fun OsmLocationPickerDialog(
                                         modifier = Modifier
                                             .fillMaxWidth()
                                             .clickable {
+                                                userTouchedMap = true
+                                                customNameOverride = null
                                                 isSelectingSuggestion = true
+                                                isProgrammaticMove = true
+                                                reverseGeocodeJob?.cancel()
+
                                                 searchQuery = suggestion.title
                                                 locationName = suggestion.title
                                                 addressText = suggestion.subtitle
                                                 val pt = GeoPoint(suggestion.latitude, suggestion.longitude)
                                                 currentGeoPoint = pt
                                                 mapViewRef?.let { map ->
-                                                    map.controller.animateTo(pt, 16.5, 800L)
+                                                    map.controller.setCenter(pt)
+                                                    map.controller.setZoom(16.5)
                                                     updateMapCircle(map, pt, radius)
                                                 }
                                                 searchSuggestions = emptyList()
                                                 coroutineScope.launch {
-                                                    delay(500)
+                                                    delay(800)
                                                     isSelectingSuggestion = false
+                                                    isProgrammaticMove = false
                                                 }
                                             }
                                             .padding(horizontal = 16.dp, vertical = 12.dp),
@@ -676,12 +797,21 @@ fun OsmLocationPickerDialog(
                     // Re-Center on GPS
                     Surface(
                         onClick = {
-                            locationPermissionLauncher.launch(
-                                arrayOf(
-                                    Manifest.permission.ACCESS_FINE_LOCATION,
-                                    Manifest.permission.ACCESS_COARSE_LOCATION
+                            userTouchedMap = false
+                            customNameOverride = null
+                            searchQuery = ""
+                            val hasFine = ContextCompat.checkSelfPermission(context, Manifest.permission.ACCESS_FINE_LOCATION) == PackageManager.PERMISSION_GRANTED
+                            val hasCoarse = ContextCompat.checkSelfPermission(context, Manifest.permission.ACCESS_COARSE_LOCATION) == PackageManager.PERMISSION_GRANTED
+                            if (hasFine || hasCoarse) {
+                                locateCurrentPosition(isUserExplicit = true)
+                            } else {
+                                locationPermissionLauncher.launch(
+                                    arrayOf(
+                                        Manifest.permission.ACCESS_FINE_LOCATION,
+                                        Manifest.permission.ACCESS_COARSE_LOCATION
+                                    )
                                 )
-                            )
+                            }
                         },
                         shape = CircleShape,
                         color = MaterialTheme.colorScheme.surface,
@@ -758,16 +888,54 @@ fun OsmLocationPickerDialog(
                                 }
                                 Spacer(Modifier.width(12.dp))
                                 Column(modifier = Modifier.weight(1f)) {
+                                     val derivedTitle = addressText.split(",")
+                                         .map { it.trim() }
+                                         .firstOrNull { it.isNotBlank() && !it.matches(Regex("^[A-Z0-9]{4,8}\\+[A-Z0-9]+$")) }
+                                         ?: addressText.split(",").firstOrNull()?.trim()?.takeIf { it.isNotBlank() }
+                                         ?: locationName.takeIf { it.isNotBlank() }
+                                         ?: if (isLocating) "Locating..." else "Selected Location"
+                                     val displayTitle = customNameOverride?.takeIf { it.isNotBlank() } ?: derivedTitle
+
+                                    Row(
+                                        verticalAlignment = Alignment.CenterVertically,
+                                        horizontalArrangement = Arrangement.spacedBy(4.dp)
+                                    ) {
+                                        Text(
+                                            text = displayTitle,
+                                            style = MaterialTheme.typography.titleMedium,
+                                            fontWeight = FontWeight.Bold,
+                                            maxLines = 1,
+                                            overflow = TextOverflow.Ellipsis,
+                                            modifier = Modifier.weight(1f, fill = false)
+                                        )
+                                        IconButton(
+                                            onClick = {
+                                                tempRenameText = displayTitle
+                                                showRenameDialog = true
+                                            },
+                                            modifier = Modifier.size(24.dp)
+                                        ) {
+                                            Icon(
+                                                Icons.Rounded.Edit,
+                                                contentDescription = "Rename location",
+                                                tint = MaterialTheme.colorScheme.primary,
+                                                modifier = Modifier.size(16.dp)
+                                            )
+                                        }
+                                    }
                                     Text(
-                                        text = locationName.ifBlank { "Selected Location" },
-                                        style = MaterialTheme.typography.titleMedium,
-                                        fontWeight = FontWeight.Bold
-                                    )
-                                    Text(
-                                        text = if (addressText.isNotBlank()) addressText else "${String.format(Locale.US, "%.4f", currentGeoPoint.latitude)}°, ${String.format(Locale.US, "%.4f", currentGeoPoint.longitude)}°",
+                                        text = if (isLocating && addressText.isBlank()) "Locating current position..."
+                                               else if (addressText.isNotBlank()) addressText
+                                               else "${String.format(Locale.US, "%.5f", currentGeoPoint.latitude)}°, ${String.format(Locale.US, "%.5f", currentGeoPoint.longitude)}°",
                                         style = MaterialTheme.typography.bodySmall,
                                         color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                        maxLines = 1
+                                        maxLines = if (isDrawerExpanded) 3 else 1
+                                    )
+                                    Text(
+                                        text = "${String.format(Locale.US, "%.5f", currentGeoPoint.latitude)}, ${String.format(Locale.US, "%.5f", currentGeoPoint.longitude)}",
+                                        style = MaterialTheme.typography.labelSmall,
+                                        color = MaterialTheme.colorScheme.primary,
+                                        fontWeight = FontWeight.Medium
                                     )
                                 }
                                 // Small indicator showing if expanded or collapsed
@@ -838,9 +1006,15 @@ fun OsmLocationPickerDialog(
                                 // Dedicated "Done" button inside expanded card
                                 Button(
                                     onClick = {
+                                         val resolvedName = customNameOverride?.trim()?.takeIf { it.isNotBlank() }
+                                             ?: addressText.split(",")
+                                                 .map { it.trim() }
+                                                 .firstOrNull { it.isNotBlank() && !it.matches(Regex("^[A-Z0-9]{4,8}\\+[A-Z0-9]+$")) }
+                                             ?: addressText.split(",").firstOrNull()?.trim()?.takeIf { it.isNotBlank() }
+                                             ?: locationName.trim().ifBlank { initialLocationName.ifBlank { "Selected Location" } }
                                         onConfirm(
                                             isArrive,
-                                            locationName.trim().ifBlank { if (isArrive) "Home" else "Work" },
+                                            resolvedName,
                                             addressText,
                                             currentGeoPoint.latitude,
                                             currentGeoPoint.longitude,
@@ -859,5 +1033,49 @@ fun OsmLocationPickerDialog(
                     }
                 }
             }
+        }
+
+        if (showRenameDialog) {
+            AlertDialog(
+                onDismissRequest = { showRenameDialog = false },
+                title = { Text("Rename Location") },
+                text = {
+                    OutlinedTextField(
+                        value = tempRenameText,
+                        onValueChange = { tempRenameText = it },
+                        label = { Text("Location Name") },
+                        singleLine = true,
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                },
+                confirmButton = {
+                    Button(
+                        onClick = {
+                            if (tempRenameText.isNotBlank()) {
+                                customNameOverride = tempRenameText.trim()
+                            }
+                            showRenameDialog = false
+                        }
+                    ) {
+                        Text("Save")
+                    }
+                },
+                dismissButton = {
+                    Row {
+                        TextButton(
+                            onClick = {
+                                customNameOverride = null
+                                triggerReverseGeocode(currentGeoPoint, immediate = true)
+                                showRenameDialog = false
+                            }
+                        ) {
+                            Text("Reset to Auto")
+                        }
+                        TextButton(onClick = { showRenameDialog = false }) {
+                            Text("Cancel")
+                        }
+                    }
+                }
+            )
         }
     }

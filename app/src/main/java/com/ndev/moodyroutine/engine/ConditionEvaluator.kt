@@ -51,22 +51,51 @@ class ConditionEvaluator {
             }
             TriggerType.LOCATION_ARRIVE -> {
                 if (event is AutomationEvent.LocationEvent) {
-                    val locationName = trigger.params["locationName"] ?: ""
-                    event.isEntering && (
-                        locationName.isBlank() ||
-                        event.locationName.contains(locationName, ignoreCase = true) ||
-                        locationName.contains(event.locationName, ignoreCase = true)
-                    )
+                    if (!event.isEntering) return false
+                    val trigLat = trigger.params["latitude"]?.toDoubleOrNull()
+                    val trigLng = trigger.params["longitude"]?.toDoubleOrNull()
+                    val trigRad = trigger.params["radius"]?.toFloatOrNull() ?: 150f
+
+                    if (trigLat != null && trigLng != null && event.latitude != null && event.longitude != null) {
+                        val results = FloatArray(1)
+                        android.location.Location.distanceBetween(event.latitude, event.longitude, trigLat, trigLng, results)
+                        results[0] <= trigRad
+                    } else {
+                        val locationName = trigger.params["locationName"] ?: ""
+                        if (locationName.isNotBlank()) {
+                            event.locationName.contains(locationName, ignoreCase = true) ||
+                            locationName.contains(event.locationName, ignoreCase = true)
+                        } else false
+                    }
                 } else false
             }
             TriggerType.LOCATION_LEAVE -> {
                 if (event is AutomationEvent.LocationEvent) {
-                    val locationName = trigger.params["locationName"] ?: ""
-                    !event.isEntering && (
-                        locationName.isBlank() ||
-                        event.locationName.contains(locationName, ignoreCase = true) ||
-                        locationName.contains(event.locationName, ignoreCase = true)
-                    )
+                    if (event.isEntering) return false
+                    val trigLat = trigger.params["latitude"]?.toDoubleOrNull()
+                    val trigLng = trigger.params["longitude"]?.toDoubleOrNull()
+                    val trigRad = trigger.params["radius"]?.toFloatOrNull() ?: 150f
+
+                    if (trigLat != null && trigLng != null && event.latitude != null && event.longitude != null) {
+                        val results = FloatArray(1)
+                        android.location.Location.distanceBetween(event.latitude, event.longitude, trigLat, trigLng, results)
+                        // Must be in the vicinity of the exit location (within radius + 1km buffer), not across the country
+                        if (results[0] > trigRad + 1000f) {
+                            false
+                        } else {
+                            val locationName = trigger.params["locationName"] ?: ""
+                            if (locationName.isNotBlank()) {
+                                event.locationName.contains(locationName, ignoreCase = true) ||
+                                locationName.contains(event.locationName, ignoreCase = true)
+                            } else true
+                        }
+                    } else {
+                        val locationName = trigger.params["locationName"] ?: ""
+                        if (locationName.isNotBlank()) {
+                            event.locationName.contains(locationName, ignoreCase = true) ||
+                            locationName.contains(event.locationName, ignoreCase = true)
+                        } else false
+                    }
                 } else false
             }
             TriggerType.BATTERY_LEVEL -> {

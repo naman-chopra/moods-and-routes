@@ -77,26 +77,33 @@ class GeofenceManager(private val context: Context) {
 
         if (geofences.isNotEmpty()) {
             val request = GeofencingRequest.Builder()
-                .setInitialTrigger(GeofencingRequest.INITIAL_TRIGGER_ENTER)
+                .setInitialTrigger(0)
                 .addGeofences(geofences)
                 .build()
 
-            try {
-                client.addGeofences(request, geofencePendingIntent).run {
-                    addOnSuccessListener {
-                        AppLogger.i("GeofenceManager", "Successfully registered ${geofences.size} Play Services geofences")
+            client.removeGeofences(geofencePendingIntent).addOnCompleteListener {
+                try {
+                    client.addGeofences(request, geofencePendingIntent).run {
+                        addOnSuccessListener {
+                            AppLogger.i("GeofenceManager", "Successfully registered ${geofences.size} Play Services geofences")
+                        }
+                        addOnFailureListener { e ->
+                            AppLogger.w("GeofenceManager", "Failed to add Play Services geofences (LocationTracker active as fallback): ${e.message}")
+                        }
                     }
-                    addOnFailureListener { e ->
-                        AppLogger.w("GeofenceManager", "Failed to add Play Services geofences (LocationTracker active as fallback): ${e.message}")
-                    }
+                } catch (e: SecurityException) {
+                    AppLogger.w("GeofenceManager", "Missing background location for Play Services geofences (LocationTracker active as fallback): ${e.message}")
                 }
-            } catch (e: SecurityException) {
-                AppLogger.w("GeofenceManager", "Missing background location for Play Services geofences (LocationTracker active as fallback): ${e.message}")
             }
         } else {
-            try {
-                client.removeGeofences(geofencePendingIntent)
-            } catch (_: Exception) {}
+            removeAllGeofences()
         }
+    }
+
+    fun removeAllGeofences() {
+        try {
+            client.removeGeofences(geofencePendingIntent)
+            AppLogger.i("GeofenceManager", "Play Services geofences removed")
+        } catch (_: Exception) {}
     }
 }

@@ -13,6 +13,10 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 
 class GeofenceReceiver : BroadcastReceiver() {
+    companion object {
+        var serviceStartTime: Long = 0L
+    }
+
     override fun onReceive(context: Context?, intent: Intent?) {
         intent ?: return
         val geofencingEvent = GeofencingEvent.fromIntent(intent) ?: return
@@ -24,19 +28,21 @@ class GeofenceReceiver : BroadcastReceiver() {
         val transition = geofencingEvent.geofenceTransition
         val isEntering = transition == Geofence.GEOFENCE_TRANSITION_ENTER
         val isExiting = transition == Geofence.GEOFENCE_TRANSITION_EXIT
+        val isInitial = (System.currentTimeMillis() - serviceStartTime) < 4000L
 
         if (isEntering || isExiting) {
             val triggeringGeofences = geofencingEvent.triggeringGeofences ?: emptyList()
             for (geofence in triggeringGeofences) {
                 val requestId = geofence.requestId
-                AppLogger.i("GeofenceReceiver", "Geofence triggered: $requestId, entering=$isEntering")
+                AppLogger.i("GeofenceReceiver", "Geofence triggered: $requestId, entering=$isEntering (initial=$isInitial)")
                 CoroutineScope(Dispatchers.IO).launch {
                     EventBus.emit(
                         AutomationEvent.LocationEvent(
                             locationName = requestId,
                             isEntering = isEntering,
                             latitude = geofencingEvent.triggeringLocation?.latitude,
-                            longitude = geofencingEvent.triggeringLocation?.longitude
+                            longitude = geofencingEvent.triggeringLocation?.longitude,
+                            isInitial = isInitial
                         )
                     )
                 }
