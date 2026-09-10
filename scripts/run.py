@@ -62,6 +62,54 @@ def screenshot(name="screen.png"):
         subprocess.run(f"cp {dest} {art_dest}", shell=True)
     print(f"[*] Screenshot saved: {dest}")
 
+import secrets
+import base64
+
+def setup_release_signing():
+    keystore_path = "app/moodyroutine-release.jks"
+    alias = "moodyroutine"
+    
+    # Check if already exists or generate
+    if not os.path.exists(keystore_path):
+        password = secrets.token_urlsafe(24)
+        print("[*] Generating release keystore...")
+        dname = "CN=ndev-hoster, OU=MoodyRoutine, O=ndev, L=Bangalore, ST=Karnataka, C=IN"
+        cmd = f'keytool -genkeypair -v -keystore {keystore_path} -alias {alias} -keyalg RSA -keysize 2048 -validity 10000 -storepass "{password}" -keypass "{password}" -dname "{dname}"'
+        res = subprocess.run(cmd, shell=True, capture_output=True, text=True)
+        if res.returncode != 0:
+            print(f"[ERROR] keytool failed: {res.stderr}")
+            return
+        print("[*] Keystore generated successfully.")
+        
+        # Write keystore.properties locally
+        with open("keystore.properties", "w") as f:
+            f.write(f"storeFile=moodyroutine-release.jks\nstorePassword={password}\nkeyAlias={alias}\nkeyPassword={password}\n")
+        print("[*] Saved local keystore.properties")
+    else:
+        print("[*] Keystore already exists at", keystore_path)
+        password = None
+        if os.path.exists("keystore.properties"):
+            with open("keystore.properties") as f:
+                for line in f:
+                    if line.startswith("storePassword="):
+                        password = line.strip().split("=", 1)[1]
+    
+    if not password:
+        print("[ERROR] Password not found.")
+        return
+
+    # Base64 encode
+    with open(keystore_path, "rb") as f:
+        b64_keystore = base64.b64encode(f.read()).decode("utf-8")
+
+    # Set GitHub Secrets
+    print("[*] Setting GitHub Secrets via gh CLI...")
+    subprocess.run(f'gh secret set KEYSTORE_BASE64 -b"{b64_keystore}"', shell=True, check=True)
+    subprocess.run(f'gh secret set KEYSTORE_PASSWORD -b"{password}"', shell=True, check=True)
+    subprocess.run(f'gh secret set KEY_ALIAS -b"{alias}"', shell=True, check=True)
+    subprocess.run(f'gh secret set KEY_PASSWORD -b"{password}"', shell=True, check=True)
+    print("[SUCCESS] All 4 GitHub Secrets configured successfully!")
+
 def main():
     print("[*] Device Helper ready.")
     dump_ui()

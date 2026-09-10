@@ -1,3 +1,6 @@
+import java.util.Properties
+import java.io.FileInputStream
+
 plugins {
     alias(libs.plugins.android.application)
     alias(libs.plugins.kotlin.android)
@@ -22,10 +25,47 @@ android {
         }
     }
 
+    val keystorePropertiesFile = rootProject.file("keystore.properties")
+    val keystoreProperties = Properties()
+    if (keystorePropertiesFile.exists()) {
+        keystoreProperties.load(FileInputStream(keystorePropertiesFile))
+    }
+
+    val storeFilePath = System.getenv("KEYSTORE_PATH")
+        ?: keystoreProperties.getProperty("storeFile")
+        ?: "moodyroutine-release.jks"
+    val resolvedStoreFile = listOf(
+        file(storeFilePath),
+        rootProject.file(storeFilePath),
+        file("moodyroutine-release.jks"),
+        rootProject.file("app/moodyroutine-release.jks")
+    ).firstOrNull { it.exists() }
+
+    signingConfigs {
+        if (resolvedStoreFile != null) {
+            create("release") {
+                storeFile = resolvedStoreFile
+                storePassword = System.getenv("KEYSTORE_PASSWORD")
+                    ?: keystoreProperties.getProperty("storePassword") ?: ""
+                keyAlias = System.getenv("KEY_ALIAS")
+                    ?: keystoreProperties.getProperty("keyAlias") ?: "moodyroutine"
+                keyPassword = System.getenv("KEY_PASSWORD")
+                    ?: keystoreProperties.getProperty("keyPassword") ?: ""
+                enableV1Signing = true
+                enableV2Signing = true
+                enableV3Signing = true
+                enableV4Signing = true
+            }
+        }
+    }
+
     buildTypes {
         release {
             isMinifyEnabled = true
             isShrinkResources = true
+            if (resolvedStoreFile != null) {
+                signingConfig = signingConfigs.getByName("release")
+            }
             proguardFiles(
                 getDefaultProguardFile("proguard-android-optimize.txt"),
                 "proguard-rules.pro"
