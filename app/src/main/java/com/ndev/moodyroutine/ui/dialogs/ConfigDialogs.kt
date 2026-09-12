@@ -580,21 +580,37 @@ fun BatteryConfigDialog(
 
                 Row(
                     modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    horizontalArrangement = Arrangement.spacedBy(6.dp)
                 ) {
                     FilterChip(
                         selected = comparison == "below",
                         onClick = { comparison = "below" },
-                        label = { Text("Equal to or below") },
+                        label = { Text("<= Below", fontSize = 12.sp, maxLines = 1) },
+                        modifier = Modifier.weight(1f)
+                    )
+                    FilterChip(
+                        selected = comparison == "equal",
+                        onClick = { comparison = "equal" },
+                        label = { Text("= Equal", fontSize = 12.sp, maxLines = 1) },
                         modifier = Modifier.weight(1f)
                     )
                     FilterChip(
                         selected = comparison == "above",
                         onClick = { comparison = "above" },
-                        label = { Text("Equal to or above") },
+                        label = { Text(">= Above", fontSize = 12.sp, maxLines = 1) },
                         modifier = Modifier.weight(1f)
                     )
                 }
+
+                Text(
+                    text = when (comparison) {
+                        "above" -> "Triggers when battery is $level% or higher"
+                        "equal" -> "Triggers only when battery is exactly $level%"
+                        else -> "Triggers when battery is $level% or lower"
+                    },
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
             }
         },
         confirmButton = {

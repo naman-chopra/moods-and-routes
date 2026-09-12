@@ -1,24 +1,26 @@
 package com.ndev.moodyroutine.engine
 
 import android.content.Context
-import com.ndev.moodyroutine.data.model.TriggerConfig
-import com.ndev.moodyroutine.data.model.TriggerMatchType
-import com.ndev.moodyroutine.data.model.TriggerType
-import com.ndev.moodyroutine.data.repository.ModeRepository
-import com.ndev.moodyroutine.data.repository.RoutineRepository
-import com.ndev.moodyroutine.util.AppLogger
 import android.content.Intent
 import android.content.IntentFilter
 import android.net.ConnectivityManager
 import android.net.NetworkCapabilities
 import android.os.BatteryManager
+import com.ndev.moodyroutine.data.model.Routine
+import com.ndev.moodyroutine.data.model.TriggerConfig
+import com.ndev.moodyroutine.data.model.TriggerMatchType
+import com.ndev.moodyroutine.data.model.TriggerType
+import com.ndev.moodyroutine.data.repository.ModeRepository
+import com.ndev.moodyroutine.data.repository.RoutineRepository
 import com.ndev.moodyroutine.service.LocationTracker
+import com.ndev.moodyroutine.util.AppLogger
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.first
-import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.launch
+import java.util.Collections
+import java.util.concurrent.ConcurrentHashMap
 
 class AutomationEngine(
     private val context: Context,
@@ -30,15 +32,37 @@ class AutomationEngine(
 ) {
     private var job: Job? = null
     private val scope = CoroutineScope(Dispatchers.Default)
-    private val activeTriggers = mutableMapOf<Long, MutableSet<Int>>() // routineId -> satisfied trigger indices
+    private val activeTriggers = ConcurrentHashMap<Long, MutableSet<Int>>() // routineId -> satisfied trigger indices
+
+    // Execution guard: in-memory state tracking to eliminate race conditions with Room DB
+    private val activeRoutineIds = ConcurrentHashMap.newKeySet<Long>()
+    private val routineLastExecutionTime = ConcurrentHashMap<Long, Long>()
+    private val recentLocationEvents = ConcurrentHashMap<String, Long>()
+
+    companion object {
+        private const val ROUTINE_COOLDOWN_MS = 15_000L // 15s debounce cooldown per routine
+        private const val LOCATION_DEDUP_WINDOW_MS = 10_000L // 10s deduplication between parallel providers
+    }
 
     fun start() {
         if (job != null) return
         job = scope.launch {
             AppLogger.i("AutomationEngine", "AutomationEngine started")
+            // Use sequential collect so in-flight action execution and snapshot saves are never cancelled
             EventBus.events.collect { event ->
                 AppLogger.d("AutomationEngine", "Received event: $event")
                 try {
+                    if (event is AutomationEvent.LocationEvent && !event.isInitial) {
+                        val key = "${event.locationName.lowercase()}_${event.isEntering}"
+                        val now = System.currentTimeMillis()
+                        val lastSeen = recentLocationEvents[key] ?: 0L
+                        if (now - lastSeen < LOCATION_DEDUP_WINDOW_MS) {
+                            AppLogger.d("AutomationEngine", "Suppressed duplicate location event for $key (${now - lastSeen}ms ago)")
+                            return@collect
+                        }
+                        recentLocationEvents[key] = now
+                    }
+
                     processEventForRoutines(event)
                     processEventForModes(event)
                 } catch (e: Exception) {
@@ -71,8 +95,11 @@ class AutomationEngine(
                 }
             }
 
-            if (exitMatched && routine.isActive) {
+            val isCurrentlyActive = routine.isActive || activeRoutineIds.contains(routine.id)
+
+            if (exitMatched && isCurrentlyActive) {
                 AppLogger.i("AutomationEngine", "Exit condition matched for routine: ${routine.name}. Deactivating and reverting actions.")
+                activeRoutineIds.remove(routine.id)
                 routineRepository.setRoutineActive(routine.id, false)
                 if (routine.revertActionsOnExit) {
                     actionExecutor.revertRoutine(routine)
@@ -106,15 +133,23 @@ class AutomationEngine(
                 }
 
                 if (shouldExecute) {
-                    AppLogger.i("AutomationEngine", "Executing routine: ${routine.name}")
-                    if (!routine.isActive) {
-                        routineRepository.setRoutineActive(routine.id, true)
-                        actionExecutor.executeRoutine(routine)
-                    } else {
-                        actionExecutor.executeAll(routine.actions)
+                    // Edge-triggered execution: only execute on rising transition into active state
+                    if (!isCurrentlyActive) {
+                        val now = System.currentTimeMillis()
+                        val lastExec = routineLastExecutionTime[routine.id] ?: 0L
+                        if (now - lastExec >= ROUTINE_COOLDOWN_MS) {
+                            routineLastExecutionTime[routine.id] = now
+                            activeRoutineIds.add(routine.id)
+                            AppLogger.i("AutomationEngine", "Executing routine: ${routine.name}")
+                            routineRepository.setRoutineActive(routine.id, true)
+                            actionExecutor.executeRoutine(routine)
+                            routineRepository.updateLastTriggered(routine.id, now)
+                        } else {
+                            AppLogger.d("AutomationEngine", "Skipping routine ${routine.name}: cooldown active (${(now - lastExec) / 1000}s / ${ROUTINE_COOLDOWN_MS / 1000}s)")
+                        }
                     }
-                    routineRepository.updateLastTriggered(routine.id, System.currentTimeMillis())
-                    satisfiedIndices.clear() // reset after execution
+                    // Reset satisfied indices after evaluation
+                    satisfiedIndices.clear()
                 }
             }
         }
@@ -188,7 +223,7 @@ class AutomationEngine(
             }
             TriggerType.WIFI_SPECIFIC_NETWORK -> {
                 if (event is AutomationEvent.WifiEvent) {
-                    val targetSsid = trigger.params["ssid"]
+                    val targetSsid = trigger.params["wifiName"] ?: trigger.params["ssid"]
                     !event.isConnected || (targetSsid != null && !event.ssid.equals(targetSsid, ignoreCase = true))
                 } else false
             }
@@ -217,6 +252,18 @@ class AutomationEngine(
             }
             TriggerType.BATTERY_DISCHARGING -> {
                 event is AutomationEvent.BatteryEvent && event.isCharging
+            }
+            TriggerType.BATTERY_LEVEL -> {
+                if (event is AutomationEvent.BatteryEvent) {
+                    val targetLevel = trigger.params["level"]?.toIntOrNull() ?: return false
+                    val comparison = trigger.params["comparison"] ?: "below"
+                    when (comparison) {
+                        "above" -> event.level < targetLevel
+                        "below" -> event.level > targetLevel || event.isCharging
+                        "equal" -> event.level != targetLevel
+                        else -> event.level != targetLevel
+                    }
+                } else false
             }
             TriggerType.HEADPHONE_CONNECTED -> {
                 event is AutomationEvent.HeadphoneEvent && !event.isConnected
@@ -252,13 +299,37 @@ class AutomationEngine(
                     } else false
                 } else false
             }
+            TriggerType.TIME_OF_DAY -> {
+                if (event is AutomationEvent.TimeEvent) {
+                    val timeStr = trigger.params["time"]
+                    val (hour, minute) = if (timeStr != null && timeStr.contains(":")) {
+                        val parts = timeStr.split(":")
+                        Pair(parts[0].toIntOrNull(), parts[1].toIntOrNull())
+                    } else {
+                        Pair(trigger.params["hour"]?.toIntOrNull(), trigger.params["minute"]?.toIntOrNull())
+                    }
+                    if (hour == null || minute == null) return false
+                    event.hour != hour || event.minute != minute
+                } else false
+            }
+            TriggerType.APP_OPENED -> {
+                if (event is AutomationEvent.AppEvent && !event.isOpened) {
+                    val pkg = trigger.params["packageName"]
+                    pkg.isNullOrBlank() || event.packageName == pkg
+                } else false
+            }
+            TriggerType.APP_CLOSED -> {
+                if (event is AutomationEvent.AppEvent && event.isOpened) {
+                    val pkg = trigger.params["packageName"]
+                    pkg.isNullOrBlank() || event.packageName == pkg
+                } else false
+            }
             TriggerType.SCREEN_ON -> {
                 event is AutomationEvent.ScreenEvent && !event.isOn
             }
             TriggerType.SCREEN_OFF -> {
                 event is AutomationEvent.ScreenEvent && event.isOn
             }
-            else -> false
         }
     }
 
@@ -295,20 +366,100 @@ class AutomationEngine(
                 val rad = trigger.params["radius"]?.toFloatOrNull() ?: 150f
                 locationTrackerProvider?.invoke()?.isInside(lat, lng, rad) ?: false
             }
+            TriggerType.LOCATION_LEAVE -> {
+                val lat = trigger.params["latitude"]?.toDoubleOrNull() ?: return false
+                val lng = trigger.params["longitude"]?.toDoubleOrNull() ?: return false
+                val rad = trigger.params["radius"]?.toFloatOrNull() ?: 150f
+                val isInside = locationTrackerProvider?.invoke()?.isInside(lat, lng, rad) ?: true
+                !isInside
+            }
             TriggerType.WIFI_CONNECTED -> {
                 val cm = context.getSystemService(Context.CONNECTIVITY_SERVICE) as? ConnectivityManager
                 val caps = cm?.getNetworkCapabilities(cm.activeNetwork)
                 caps?.hasTransport(NetworkCapabilities.TRANSPORT_WIFI) == true
+            }
+            TriggerType.WIFI_DISCONNECTED -> {
+                val cm = context.getSystemService(Context.CONNECTIVITY_SERVICE) as? ConnectivityManager
+                val caps = cm?.getNetworkCapabilities(cm.activeNetwork)
+                caps?.hasTransport(NetworkCapabilities.TRANSPORT_WIFI) != true
+            }
+            TriggerType.WIFI_SPECIFIC_NETWORK -> {
+                val cm = context.getSystemService(Context.CONNECTIVITY_SERVICE) as? ConnectivityManager
+                val caps = cm?.getNetworkCapabilities(cm.activeNetwork)
+                if (caps?.hasTransport(NetworkCapabilities.TRANSPORT_WIFI) == true) {
+                    val targetWifi = trigger.params["wifiName"] ?: trigger.params["ssid"]
+                    if (targetWifi.isNullOrBlank()) return true
+                    val wm = context.applicationContext.getSystemService(Context.WIFI_SERVICE) as? android.net.wifi.WifiManager
+                    @Suppress("DEPRECATION")
+                    val currentSsid = wm?.connectionInfo?.ssid?.replace("\"", "")
+                    currentSsid?.equals(targetWifi.replace("\"", ""), ignoreCase = true) == true
+                } else false
             }
             TriggerType.POWER_CONNECTED, TriggerType.BATTERY_CHARGING -> {
                 val intent = context.registerReceiver(null, IntentFilter(Intent.ACTION_BATTERY_CHANGED))
                 val status = intent?.getIntExtra(BatteryManager.EXTRA_STATUS, -1) ?: -1
                 status == BatteryManager.BATTERY_STATUS_CHARGING || status == BatteryManager.BATTERY_STATUS_FULL
             }
+            TriggerType.POWER_DISCONNECTED, TriggerType.BATTERY_DISCHARGING -> {
+                val intent = context.registerReceiver(null, IntentFilter(Intent.ACTION_BATTERY_CHANGED))
+                val status = intent?.getIntExtra(BatteryManager.EXTRA_STATUS, -1) ?: -1
+                status != BatteryManager.BATTERY_STATUS_CHARGING && status != BatteryManager.BATTERY_STATUS_FULL
+            }
+            TriggerType.BATTERY_LEVEL -> {
+                val intent = context.registerReceiver(null, IntentFilter(Intent.ACTION_BATTERY_CHANGED))
+                val currentLevel = intent?.getIntExtra(BatteryManager.EXTRA_LEVEL, -1) ?: -1
+                val targetLevel = trigger.params["level"]?.toIntOrNull() ?: return false
+                val comparison = trigger.params["comparison"] ?: "below"
+                if (currentLevel < 0) return false
+                when (comparison) {
+                    "above" -> currentLevel >= targetLevel
+                    "below" -> currentLevel <= targetLevel
+                    "equal" -> currentLevel == targetLevel
+                    else -> currentLevel == targetLevel
+                }
+            }
+            TriggerType.BLUETOOTH_CONNECTED -> {
+                val bm = context.getSystemService(Context.BLUETOOTH_SERVICE) as? android.bluetooth.BluetoothManager
+                val adapter = bm?.adapter
+                adapter?.isEnabled == true && (
+                    adapter.getProfileConnectionState(android.bluetooth.BluetoothProfile.HEADSET) == android.bluetooth.BluetoothProfile.STATE_CONNECTED ||
+                    adapter.getProfileConnectionState(android.bluetooth.BluetoothProfile.A2DP) == android.bluetooth.BluetoothProfile.STATE_CONNECTED
+                )
+            }
+            TriggerType.BLUETOOTH_DISCONNECTED -> {
+                val bm = context.getSystemService(Context.BLUETOOTH_SERVICE) as? android.bluetooth.BluetoothManager
+                val adapter = bm?.adapter
+                adapter?.isEnabled != true || (
+                    adapter.getProfileConnectionState(android.bluetooth.BluetoothProfile.HEADSET) != android.bluetooth.BluetoothProfile.STATE_CONNECTED &&
+                    adapter.getProfileConnectionState(android.bluetooth.BluetoothProfile.A2DP) != android.bluetooth.BluetoothProfile.STATE_CONNECTED
+                )
+            }
+            TriggerType.BLUETOOTH_SPECIFIC_DEVICE -> {
+                val bm = context.getSystemService(Context.BLUETOOTH_SERVICE) as? android.bluetooth.BluetoothManager
+                val adapter = bm?.adapter
+                val targetName = trigger.params["deviceName"]
+                val targetAddress = trigger.params["deviceAddress"]
+                if (adapter?.isEnabled == true) {
+                    try {
+                        @Suppress("DEPRECATION")
+                        val bonded = adapter.bondedDevices ?: emptySet()
+                        bonded.any { dev ->
+                            val nameMatch = targetName != null && dev.name?.contains(targetName, ignoreCase = true) == true
+                            val addrMatch = targetAddress != null && dev.address.equals(targetAddress, ignoreCase = true)
+                            (nameMatch || addrMatch)
+                        }
+                    } catch (_: SecurityException) { false }
+                } else false
+            }
             TriggerType.HEADPHONE_CONNECTED -> {
                 val am = context.getSystemService(Context.AUDIO_SERVICE) as? android.media.AudioManager
                 @Suppress("DEPRECATION")
                 (am?.isWiredHeadsetOn == true || am?.isBluetoothA2dpOn == true)
+            }
+            TriggerType.HEADPHONE_DISCONNECTED -> {
+                val am = context.getSystemService(Context.AUDIO_SERVICE) as? android.media.AudioManager
+                @Suppress("DEPRECATION")
+                !(am?.isWiredHeadsetOn == true || am?.isBluetoothA2dpOn == true)
             }
             TriggerType.TIME_RANGE -> {
                 val startTime = trigger.params["startTime"] ?: return false
@@ -352,6 +503,14 @@ class AutomationEngine(
                     }
                 }
                 true
+            }
+            TriggerType.SCREEN_ON -> {
+                val pm = context.getSystemService(Context.POWER_SERVICE) as? android.os.PowerManager
+                pm?.isInteractive == true
+            }
+            TriggerType.SCREEN_OFF -> {
+                val pm = context.getSystemService(Context.POWER_SERVICE) as? android.os.PowerManager
+                pm?.isInteractive == false
             }
             else -> false
         }

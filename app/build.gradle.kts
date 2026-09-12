@@ -16,8 +16,8 @@ android {
         applicationId = "com.ndev.moodyroutine"
         minSdk = 26
         targetSdk = 35
-        versionCode = 4
-        versionName = "0.1.0-pre4"
+        versionCode = 5
+        versionName = "0.1.0-pre5"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         vectorDrawables {
@@ -91,6 +91,9 @@ android {
             excludes += "/META-INF/{AL2.0,LGPL2.1}"
         }
     }
+    testOptions {
+        unitTests.isReturnDefaultValues = true
+    }
 }
 
 dependencies {
@@ -128,4 +131,5 @@ dependencies {
     implementation("org.osmdroid:osmdroid-android:6.1.20")
 
     debugImplementation(libs.androidx.ui.tooling)
+    testImplementation("junit:junit:4.13.2")
 }

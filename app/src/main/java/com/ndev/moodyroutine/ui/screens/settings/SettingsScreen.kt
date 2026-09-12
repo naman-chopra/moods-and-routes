@@ -538,8 +538,15 @@ fun SettingsContent(
                     ) {
                         Button(
                             onClick = {
-                                val dateStr = SimpleDateFormat("yyyyMMdd_HHmmss", Locale.getDefault()).format(Date())
-                                exportLauncher.launch("moodyroutine_backup_$dateStr.json")
+                                coroutineScope.launch {
+                                    val result = BackupManager.exportBackupToDownloads(context)
+                                    result.onSuccess { msg ->
+                                        Toast.makeText(context, msg, Toast.LENGTH_LONG).show()
+                                    }.onFailure {
+                                        val dateStr = SimpleDateFormat("yyyyMMdd_HHmmss", Locale.getDefault()).format(Date())
+                                        exportLauncher.launch("moodyroutine_backup_$dateStr.json")
+                                    }
+                                }
                             },
                             colors = ButtonDefaults.buttonColors(
                                 containerColor = MaterialTheme.colorScheme.surfaceVariant,
@@ -665,28 +672,66 @@ fun SettingsContent(
                         thickness = 0.5.dp
                     )
 
-                    Button(
-                        onClick = onNavigateToLogs,
+                    Row(
                         modifier = Modifier.fillMaxWidth(),
-                        shape = RoundedCornerShape(14.dp),
-                        colors = ButtonDefaults.buttonColors(
-                            containerColor = MaterialTheme.colorScheme.surfaceVariant,
-                            contentColor = MaterialTheme.colorScheme.onSurface
-                        ),
-                        contentPadding = PaddingValues(horizontal = 16.dp, vertical = 12.dp)
+                        horizontalArrangement = Arrangement.spacedBy(10.dp)
                     ) {
-                        Icon(
-                            Icons.Rounded.BugReport,
-                            contentDescription = null,
-                            tint = MaterialTheme.colorScheme.primary,
-                            modifier = Modifier.size(18.dp)
-                        )
-                        Spacer(Modifier.width(8.dp))
-                        Text(
-                            "View Diagnostic Logs",
-                            fontSize = 13.sp,
-                            fontWeight = FontWeight.SemiBold
-                        )
+                        Button(
+                            onClick = onNavigateToLogs,
+                            modifier = Modifier.weight(1f),
+                            shape = RoundedCornerShape(14.dp),
+                            colors = ButtonDefaults.buttonColors(
+                                containerColor = MaterialTheme.colorScheme.surfaceVariant,
+                                contentColor = MaterialTheme.colorScheme.onSurface
+                            ),
+                            contentPadding = PaddingValues(horizontal = 12.dp, vertical = 12.dp)
+                        ) {
+                            Icon(
+                                Icons.Rounded.BugReport,
+                                contentDescription = null,
+                                tint = MaterialTheme.colorScheme.primary,
+                                modifier = Modifier.size(18.dp)
+                            )
+                            Spacer(Modifier.width(6.dp))
+                            Text(
+                                "View Logs",
+                                fontSize = 13.sp,
+                                fontWeight = FontWeight.SemiBold
+                            )
+                        }
+
+                        Button(
+                            onClick = {
+                                coroutineScope.launch {
+                                    val result = AppLogger.exportLogsToDownloads(context)
+                                    result.onSuccess { msg ->
+                                        Toast.makeText(context, msg, Toast.LENGTH_LONG).show()
+                                    }.onFailure { e ->
+                                        Toast.makeText(context, "Export failed: ${e.message}", Toast.LENGTH_LONG).show()
+                                    }
+                                }
+                            },
+                            modifier = Modifier.weight(1f),
+                            shape = RoundedCornerShape(14.dp),
+                            colors = ButtonDefaults.buttonColors(
+                                containerColor = MaterialTheme.colorScheme.surfaceVariant,
+                                contentColor = MaterialTheme.colorScheme.onSurface
+                            ),
+                            contentPadding = PaddingValues(horizontal = 12.dp, vertical = 12.dp)
+                        ) {
+                            Icon(
+                                Icons.Rounded.Download,
+                                contentDescription = null,
+                                tint = MaterialTheme.colorScheme.primary,
+                                modifier = Modifier.size(18.dp)
+                            )
+                            Spacer(Modifier.width(6.dp))
+                            Text(
+                                "Export Logs",
+                                fontSize = 13.sp,
+                                fontWeight = FontWeight.SemiBold
+                            )
+                        }
                     }
                 }
             }

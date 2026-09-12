@@ -105,6 +105,7 @@ class ConditionEvaluator {
                     when (comparison) {
                         "above" -> event.level >= level
                         "below" -> event.level <= level
+                        "equal" -> event.level == level
                         else -> event.level == level
                     }
                 } else false

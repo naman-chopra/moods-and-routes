@@ -38,7 +38,11 @@ object HumanFormatter {
             TriggerType.BATTERY_LEVEL -> {
                 val level = trigger.params["level"] ?: "20"
                 val comparison = trigger.params["comparison"] ?: "below"
-                if (comparison == "above") "Equal to or above $level%" else "Equal to or below $level%"
+                when (comparison) {
+                    "above" -> "Equal to or above $level%"
+                    "equal" -> "Equal to $level%"
+                    else -> "Equal to or below $level%"
+                }
             }
             TriggerType.BATTERY_CHARGING -> "When device starts charging"
             TriggerType.BATTERY_DISCHARGING -> "When device is unplugged"

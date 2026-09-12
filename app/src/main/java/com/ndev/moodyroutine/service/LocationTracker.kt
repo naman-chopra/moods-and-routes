@@ -141,6 +141,11 @@ class LocationTracker(private val context: Context) {
         AppLogger.i("LocationTracker", "LocationTracker stopped")
     }
 
+    companion object {
+        private const val HYSTERESIS_BUFFER_METERS = 60f
+        private const val MAX_ALLOWABLE_ACCURACY_METERS = 150f
+    }
+
     private fun checkLocation(currentLocation: Location, isExplicitInitial: Boolean = false) {
         lastKnownLocation = currentLocation
         val isInitial = isExplicitInitial || !hasInitialFix
@@ -156,12 +161,13 @@ class LocationTracker(private val context: Context) {
                 results
             )
             val distance = results[0]
-            val isInside = distance <= target.radiusMeters
+            val enterRadius = target.radiusMeters
+            val exitRadius = target.radiusMeters + HYSTERESIS_BUFFER_METERS
             val wasInside = insideTargets.contains(target.id)
 
-            if (isInside && !wasInside) {
+            if (distance <= enterRadius && !wasInside) {
                 insideTargets.add(target.id)
-                AppLogger.i("LocationTracker", "LocationTracker: ENTERED ${target.name} (dist=${distance.toInt()}m <= ${target.radiusMeters.toInt()}m, initial=$isInitial)")
+                AppLogger.i("LocationTracker", "LocationTracker: ENTERED ${target.name} (dist=${distance.toInt()}m <= ${enterRadius.toInt()}m, initial=$isInitial)")
                 scope.launch {
                     EventBus.emit(
                         AutomationEvent.LocationEvent(
@@ -173,9 +179,14 @@ class LocationTracker(private val context: Context) {
                         )
                     )
                 }
-            } else if (!isInside && wasInside) {
+            } else if (distance > exitRadius && wasInside) {
+                // If GPS accuracy is degraded, ignore transient exit reading to prevent boundary flip
+                if (currentLocation.hasAccuracy() && currentLocation.accuracy > MAX_ALLOWABLE_ACCURACY_METERS) {
+                    AppLogger.d("LocationTracker", "Ignoring exit for ${target.name}: accuracy degraded (${currentLocation.accuracy.toInt()}m > ${MAX_ALLOWABLE_ACCURACY_METERS.toInt()}m)")
+                    continue
+                }
                 insideTargets.remove(target.id)
-                AppLogger.i("LocationTracker", "LocationTracker: EXITED ${target.name} (dist=${distance.toInt()}m > ${target.radiusMeters.toInt()}m)")
+                AppLogger.i("LocationTracker", "LocationTracker: EXITED ${target.name} (dist=${distance.toInt()}m > ${exitRadius.toInt()}m, buffer=${HYSTERESIS_BUFFER_METERS.toInt()}m)")
                 scope.launch {
                     EventBus.emit(
                         AutomationEvent.LocationEvent(

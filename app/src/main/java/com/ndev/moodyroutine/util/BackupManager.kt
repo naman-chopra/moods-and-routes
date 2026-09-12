@@ -27,31 +27,51 @@ object BackupManager {
 
     private val gson: Gson = GsonBuilder().setPrettyPrinting().create()
 
+    suspend fun createBackupPayload(context: Context): BackupPayload {
+        val db = MoodyRoutineDatabase.getInstance(context)
+        val modeEntities = db.modeDao().getAll().first()
+        val routineEntities = db.routineDao().getAll().first()
+
+        val modes = modeEntities.map { it.toDomainModel() }
+        val routines = routineEntities.map { it.toDomainModel() }
+
+        return BackupPayload(
+            version = 1,
+            app = "MoodyRoutine",
+            timestamp = System.currentTimeMillis(),
+            modes = modes,
+            routines = routines
+        )
+    }
+
+    suspend fun exportBackupToDownloads(context: Context): Result<String> = withContext(Dispatchers.IO) {
+        try {
+            val payload = createBackupPayload(context)
+            val json = gson.toJson(payload)
+            val dateStr = java.text.SimpleDateFormat("yyyyMMdd_HHmmss", java.util.Locale.getDefault()).format(java.util.Date())
+            val fileName = "moodyroutine_backup_$dateStr.json"
+            val res = StorageHelper.saveToDownloads(context, fileName, "application/json", json)
+            if (res.isSuccess) {
+                AppLogger.i("BackupManager", "Exported backup to storage: ${payload.modes.size} modes, ${payload.routines.size} routines")
+            }
+            res
+        } catch (e: Exception) {
+            AppLogger.e("BackupManager", "Error exporting backup to storage", e)
+            Result.failure(e)
+        }
+    }
+
     suspend fun exportBackup(context: Context, uri: Uri): Result<String> = withContext(Dispatchers.IO) {
         try {
-            val db = MoodyRoutineDatabase.getInstance(context)
-            val modeEntities = db.modeDao().getAll().first()
-            val routineEntities = db.routineDao().getAll().first()
-
-            val modes = modeEntities.map { it.toDomainModel() }
-            val routines = routineEntities.map { it.toDomainModel() }
-
-            val payload = BackupPayload(
-                version = 1,
-                app = "MoodyRoutine",
-                timestamp = System.currentTimeMillis(),
-                modes = modes,
-                routines = routines
-            )
-
+            val payload = createBackupPayload(context)
             val json = gson.toJson(payload)
-            context.contentResolver.openOutputStream(uri)?.use { outputStream ->
+            context.contentResolver.openOutputStream(uri, "wt")?.use { outputStream ->
                 outputStream.write(json.toByteArray(Charsets.UTF_8))
                 outputStream.flush()
             } ?: return@withContext Result.failure(Exception("Failed to open output stream for export"))
 
-            AppLogger.i("BackupManager", "Successfully exported ${modes.size} modes and ${routines.size} routines")
-            Result.success("Exported ${modes.size} modes and ${routines.size} routines successfully")
+            AppLogger.i("BackupManager", "Successfully exported ${payload.modes.size} modes and ${payload.routines.size} routines")
+            Result.success("Exported ${payload.modes.size} modes and ${payload.routines.size} routines successfully")
         } catch (e: Exception) {
             AppLogger.e("BackupManager", "Error exporting backup", e)
             Result.failure(e)

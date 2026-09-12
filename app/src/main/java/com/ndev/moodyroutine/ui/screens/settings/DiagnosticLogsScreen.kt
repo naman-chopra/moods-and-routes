@@ -34,6 +34,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.navigation.NavController
 import com.ndev.moodyroutine.util.AppLogger
+import kotlinx.coroutines.launch
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
@@ -49,6 +50,7 @@ fun DiagnosticLogsScreen(
     var selectedLevel by remember { mutableStateOf("ALL") }
     var showClearConfirmDialog by remember { mutableStateOf(false) }
     val listState = rememberLazyListState()
+    val coroutineScope = rememberCoroutineScope()
 
     val filteredLogs = remember(logs, searchQuery, selectedLevel) {
         logs.filter { entry ->
@@ -143,6 +145,20 @@ fun DiagnosticLogsScreen(
                         Icon(Icons.Rounded.Share, contentDescription = "Share")
                     }
                     IconButton(
+                        onClick = {
+                            coroutineScope.launch {
+                                val result = AppLogger.exportLogsToDownloads(context)
+                                result.onSuccess { msg ->
+                                    Toast.makeText(context, msg, Toast.LENGTH_LONG).show()
+                                }.onFailure { e ->
+                                    Toast.makeText(context, "Export failed: ${e.message}", Toast.LENGTH_LONG).show()
+                                }
+                            }
+                        }
+                    ) {
+                        Icon(Icons.Rounded.Download, contentDescription = "Export logs to storage")
+                    }
+                    IconButton(
                         onClick = { showClearConfirmDialog = true }
                     ) {
                         Icon(
@@ -231,6 +247,36 @@ fun DiagnosticLogsScreen(
                             )
                             Spacer(modifier = Modifier.width(6.dp))
                             Text("Share", fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
+                        }
+
+                        // Export logs to storage
+                        Button(
+                            onClick = {
+                                coroutineScope.launch {
+                                    val result = AppLogger.exportLogsToDownloads(context)
+                                    result.onSuccess { msg ->
+                                        Toast.makeText(context, msg, Toast.LENGTH_LONG).show()
+                                    }.onFailure { e ->
+                                        Toast.makeText(context, "Export failed: ${e.message}", Toast.LENGTH_LONG).show()
+                                    }
+                                }
+                            },
+                            colors = ButtonDefaults.buttonColors(
+                                containerColor = MaterialTheme.colorScheme.surfaceVariant,
+                                contentColor = MaterialTheme.colorScheme.onSurface
+                            ),
+                            shape = RoundedCornerShape(12.dp),
+                            contentPadding = PaddingValues(horizontal = 6.dp, vertical = 10.dp),
+                            modifier = Modifier.weight(1f)
+                        ) {
+                            Icon(
+                                imageVector = Icons.Rounded.Download,
+                                contentDescription = "Export",
+                                tint = MaterialTheme.colorScheme.primary,
+                                modifier = Modifier.size(16.dp)
+                            )
+                            Spacer(modifier = Modifier.width(4.dp))
+                            Text("Export", fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
                         }
 
                         // Clear logs
