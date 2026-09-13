@@ -52,6 +52,21 @@ fun DiagnosticLogsScreen(
     val listState = rememberLazyListState()
     val coroutineScope = rememberCoroutineScope()
 
+    val exportLogsLauncher = androidx.activity.compose.rememberLauncherForActivityResult(
+        contract = androidx.activity.result.contract.ActivityResultContracts.CreateDocument("text/plain")
+    ) { uri ->
+        if (uri != null) {
+            coroutineScope.launch {
+                val result = AppLogger.exportLogsToUri(context, uri)
+                result.onSuccess { msg ->
+                    Toast.makeText(context, msg, Toast.LENGTH_LONG).show()
+                }.onFailure { e ->
+                    Toast.makeText(context, "Export failed: ${e.message}", Toast.LENGTH_LONG).show()
+                }
+            }
+        }
+    }
+
     val filteredLogs = remember(logs, searchQuery, selectedLevel) {
         logs.filter { entry ->
             val matchesLevel = when (selectedLevel) {
@@ -146,14 +161,8 @@ fun DiagnosticLogsScreen(
                     }
                     IconButton(
                         onClick = {
-                            coroutineScope.launch {
-                                val result = AppLogger.exportLogsToDownloads(context)
-                                result.onSuccess { msg ->
-                                    Toast.makeText(context, msg, Toast.LENGTH_LONG).show()
-                                }.onFailure { e ->
-                                    Toast.makeText(context, "Export failed: ${e.message}", Toast.LENGTH_LONG).show()
-                                }
-                            }
+                            val dateStr = SimpleDateFormat("yyyyMMdd_HHmmss", Locale.getDefault()).format(Date())
+                            exportLogsLauncher.launch("moodyroutine_logs_$dateStr.txt")
                         }
                     ) {
                         Icon(Icons.Rounded.Download, contentDescription = "Export logs to storage")
@@ -252,14 +261,8 @@ fun DiagnosticLogsScreen(
                         // Export logs to storage
                         Button(
                             onClick = {
-                                coroutineScope.launch {
-                                    val result = AppLogger.exportLogsToDownloads(context)
-                                    result.onSuccess { msg ->
-                                        Toast.makeText(context, msg, Toast.LENGTH_LONG).show()
-                                    }.onFailure { e ->
-                                        Toast.makeText(context, "Export failed: ${e.message}", Toast.LENGTH_LONG).show()
-                                    }
-                                }
+                                val dateStr = SimpleDateFormat("yyyyMMdd_HHmmss", Locale.getDefault()).format(Date())
+                                exportLogsLauncher.launch("moodyroutine_logs_$dateStr.txt")
                             },
                             colors = ButtonDefaults.buttonColors(
                                 containerColor = MaterialTheme.colorScheme.surfaceVariant,

@@ -44,22 +44,6 @@ object BackupManager {
         )
     }
 
-    suspend fun exportBackupToDownloads(context: Context): Result<String> = withContext(Dispatchers.IO) {
-        try {
-            val payload = createBackupPayload(context)
-            val json = gson.toJson(payload)
-            val dateStr = java.text.SimpleDateFormat("yyyyMMdd_HHmmss", java.util.Locale.getDefault()).format(java.util.Date())
-            val fileName = "moodyroutine_backup_$dateStr.json"
-            val res = StorageHelper.saveToDownloads(context, fileName, "application/json", json)
-            if (res.isSuccess) {
-                AppLogger.i("BackupManager", "Exported backup to storage: ${payload.modes.size} modes, ${payload.routines.size} routines")
-            }
-            res
-        } catch (e: Exception) {
-            AppLogger.e("BackupManager", "Error exporting backup to storage", e)
-            Result.failure(e)
-        }
-    }
 
     suspend fun exportBackup(context: Context, uri: Uri): Result<String> = withContext(Dispatchers.IO) {
         try {

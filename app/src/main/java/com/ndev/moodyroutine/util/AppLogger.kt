@@ -193,12 +193,16 @@ object AppLogger {
         }
     }
 
-    suspend fun exportLogsToDownloads(context: Context): Result<String> = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+    suspend fun exportLogsToUri(context: Context, uri: android.net.Uri): Result<String> = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
         try {
             val content = getFormattedLogs()
-            val dateStr = SimpleDateFormat("yyyyMMdd_HHmmss", Locale.getDefault()).format(Date())
-            val fileName = "moodyroutine_logs_$dateStr.txt"
-            StorageHelper.saveToDownloads(context, fileName, "text/plain", content)
+            context.contentResolver.openOutputStream(uri, "wt")?.use { os ->
+                os.write(content.toByteArray(Charsets.UTF_8))
+                os.flush()
+            } ?: return@withContext Result.failure(Exception("Could not open output stream for export"))
+            
+            i("AppLogger", "Successfully exported logs to selected directory")
+            Result.success("Exported logs successfully")
         } catch (e: Exception) {
             e("AppLogger", "Error exporting logs to storage", e)
             Result.failure(e)

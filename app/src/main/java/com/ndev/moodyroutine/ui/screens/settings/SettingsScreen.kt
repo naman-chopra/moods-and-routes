@@ -139,6 +139,22 @@ fun SettingsContent(
         }
     }
 
+    val exportLogsLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.CreateDocument("text/plain")
+    ) { uri ->
+        if (uri != null) {
+            coroutineScope.launch {
+                val result = AppLogger.exportLogsToUri(context, uri)
+                result.onSuccess { msg ->
+                    Toast.makeText(context, msg, Toast.LENGTH_LONG).show()
+                }.onFailure { e ->
+                    Toast.makeText(context, "Export failed: ${e.message}", Toast.LENGTH_LONG).show()
+                }
+            }
+        }
+    }
+
+
     val importLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.OpenDocument()
     ) { uri ->
@@ -538,15 +554,8 @@ fun SettingsContent(
                     ) {
                         Button(
                             onClick = {
-                                coroutineScope.launch {
-                                    val result = BackupManager.exportBackupToDownloads(context)
-                                    result.onSuccess { msg ->
-                                        Toast.makeText(context, msg, Toast.LENGTH_LONG).show()
-                                    }.onFailure {
-                                        val dateStr = SimpleDateFormat("yyyyMMdd_HHmmss", Locale.getDefault()).format(Date())
-                                        exportLauncher.launch("moodyroutine_backup_$dateStr.json")
-                                    }
-                                }
+                                val dateStr = SimpleDateFormat("yyyyMMdd_HHmmss", Locale.getDefault()).format(Date())
+                                exportLauncher.launch("moodyroutine_backup_$dateStr.json")
                             },
                             colors = ButtonDefaults.buttonColors(
                                 containerColor = MaterialTheme.colorScheme.surfaceVariant,
@@ -702,14 +711,8 @@ fun SettingsContent(
 
                         Button(
                             onClick = {
-                                coroutineScope.launch {
-                                    val result = AppLogger.exportLogsToDownloads(context)
-                                    result.onSuccess { msg ->
-                                        Toast.makeText(context, msg, Toast.LENGTH_LONG).show()
-                                    }.onFailure { e ->
-                                        Toast.makeText(context, "Export failed: ${e.message}", Toast.LENGTH_LONG).show()
-                                    }
-                                }
+                                val dateStr = SimpleDateFormat("yyyyMMdd_HHmmss", Locale.getDefault()).format(Date())
+                                exportLogsLauncher.launch("moodyroutine_logs_$dateStr.txt")
                             },
                             modifier = Modifier.weight(1f),
                             shape = RoundedCornerShape(14.dp),
