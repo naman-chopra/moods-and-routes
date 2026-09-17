@@ -427,45 +427,42 @@ class AutomationService : Service() {
         }
         activeRestrictedApps = restrictedMap
 
-        // 1. Cancel any legacy separate mode notifications
+        val openIntent = Intent(this, MainActivity::class.java).apply {
+            flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP
+        }
+        val openPendingIntent = PendingIntent.getActivity(
+            this,
+            NOTIFICATION_ID_SERVICE,
+            openIntent,
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+        )
+
+        // Always keep the foreground service notification alive and boring
+        val idleNotification = NotificationCompat.Builder(this, CHANNEL_SERVICE)
+            .setContentTitle("MoodyRoutine is active")
+            .setContentText(if (activeModes.isEmpty()) "Monitoring for automated triggers & locations" else "${activeModes.size} active mode(s)")
+            .setSmallIcon(com.ndev.moodyroutine.R.drawable.ic_mode_custom)
+            .setOngoing(true)
+            .setAutoCancel(false)
+            .setOnlyAlertOnce(true)
+            .setPriority(NotificationCompat.PRIORITY_LOW)
+            .setContentIntent(openPendingIntent)
+            .build()
+
+        manager.notify(NOTIFICATION_ID_SERVICE, idleNotification)
+
+        // Cancel previously notified modes
         for (id in currentlyNotifiedModeIds) {
             manager.cancel(NOTIFICATION_ID_MODE_BASE + id.toInt())
         }
         currentlyNotifiedModeIds.clear()
 
-        if (activeModes.isEmpty()) {
-            // Restore default idle service notification
-            val openIntent = Intent(this, MainActivity::class.java).apply {
-                flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP
-            }
-            val openPendingIntent = PendingIntent.getActivity(
-                this,
-                NOTIFICATION_ID_SERVICE,
-                openIntent,
-                PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
-            )
+        // Post a notification for each active mode using the highly visible CHANNEL_ACTIVE_MODES
+        for (mode in activeModes) {
+            val notifId = NOTIFICATION_ID_MODE_BASE + mode.id.toInt()
+            currentlyNotifiedModeIds.add(mode.id)
 
-            val idleNotification = NotificationCompat.Builder(this, CHANNEL_SERVICE)
-                .setContentTitle("MoodyRoutine is active")
-                .setContentText("Monitoring for automated triggers & locations")
-                .setSmallIcon(com.ndev.moodyroutine.R.drawable.ic_mode_custom)
-                .setOngoing(true)
-                .setAutoCancel(false)
-                .setOnlyAlertOnce(true)
-                .setPriority(NotificationCompat.PRIORITY_LOW)
-                .setContentIntent(openPendingIntent)
-                .build()
-
-            manager.notify(NOTIFICATION_ID_SERVICE, idleNotification)
-            AppLogger.i("AutomationService", "Updated service notification to idle state")
-        } else {
-            val mode = activeModes.first()
-            val notifId = NOTIFICATION_ID_SERVICE
-
-            val openIntent = Intent(this, MainActivity::class.java).apply {
-                flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP
-            }
-            val openPendingIntent = PendingIntent.getActivity(
+            val modeOpenPendingIntent = PendingIntent.getActivity(
                 this,
                 notifId,
                 openIntent,
@@ -497,14 +494,8 @@ class AutomationService : Service() {
                 0xFF3B82F6.toInt()
             }
 
-            val title = if (activeModes.size == 1) {
-                "${mode.name} mode is on"
-            } else {
-                "${activeModes.joinToString { it.name }} are on"
-            }
-
-            val builder = NotificationCompat.Builder(this, CHANNEL_SERVICE)
-                .setContentTitle(title)
+            val builder = NotificationCompat.Builder(this, CHANNEL_ACTIVE_MODES)
+                .setContentTitle("${mode.name} mode is on")
                 .setContentText(actionSummary)
                 .setStyle(NotificationCompat.BigTextStyle().bigText("${mode.name} mode is currently active.\nActions: $actionSummary"))
                 .setSmallIcon(iconResId)
@@ -514,8 +505,7 @@ class AutomationService : Service() {
                 .setAutoCancel(false)
                 .setOnlyAlertOnce(true)
                 .setPriority(NotificationCompat.PRIORITY_DEFAULT)
-                .setContentIntent(openPendingIntent)
-                .setGroup("moody_routine_active_modes")
+                .setContentIntent(modeOpenPendingIntent)
                 .addAction(
                     android.R.drawable.ic_menu_close_clear_cancel,
                     "Turn off",
@@ -526,9 +516,8 @@ class AutomationService : Service() {
                 builder.setLargeIcon(largeIconBitmap)
             }
 
-            val notification = builder.build()
-            manager.notify(notifId, notification)
-            AppLogger.i("AutomationService", "Updated service notification for active mode: ${mode.name} with icon ${mode.iconName}")
+            manager.notify(notifId, builder.build())
+            AppLogger.i("AutomationService", "Posted separate notification for active mode: ${mode.name}")
         }
     }
 
