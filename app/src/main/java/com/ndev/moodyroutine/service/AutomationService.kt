@@ -158,20 +158,32 @@ class AutomationService : Service() {
             .setPriority(NotificationCompat.PRIORITY_LOW)
             .build()
 
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
-            startForeground(
-                1,
-                notification,
-                ServiceInfo.FOREGROUND_SERVICE_TYPE_LOCATION or ServiceInfo.FOREGROUND_SERVICE_TYPE_SPECIAL_USE
-            )
-        } else if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-            startForeground(
-                1,
-                notification,
-                ServiceInfo.FOREGROUND_SERVICE_TYPE_LOCATION
-            )
-        } else {
-            startForeground(1, notification)
+        try {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
+                startForeground(
+                    1,
+                    notification,
+                    ServiceInfo.FOREGROUND_SERVICE_TYPE_LOCATION or ServiceInfo.FOREGROUND_SERVICE_TYPE_SPECIAL_USE
+                )
+            } else if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                startForeground(
+                    1,
+                    notification,
+                    ServiceInfo.FOREGROUND_SERVICE_TYPE_LOCATION
+                )
+            } else {
+                startForeground(1, notification)
+            }
+        } catch (e: Exception) {
+            AppLogger.e("AutomationService", "Failed to start foreground service", e)
+            try {
+                // Fallback to special use only if location fails
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
+                    startForeground(1, notification, ServiceInfo.FOREGROUND_SERVICE_TYPE_SPECIAL_USE)
+                }
+            } catch (e2: Exception) {
+                AppLogger.e("AutomationService", "Fallback startForeground also failed", e2)
+            }
         }
 
         val db = MoodyRoutineDatabase.getInstance(this)
@@ -491,7 +503,7 @@ class AutomationService : Service() {
                 "${activeModes.joinToString { it.name }} are on"
             }
 
-            val builder = NotificationCompat.Builder(this, CHANNEL_ACTIVE_MODES)
+            val builder = NotificationCompat.Builder(this, CHANNEL_SERVICE)
                 .setContentTitle(title)
                 .setContentText(actionSummary)
                 .setStyle(NotificationCompat.BigTextStyle().bigText("${mode.name} mode is currently active.\nActions: $actionSummary"))
