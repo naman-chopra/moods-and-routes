@@ -52,6 +52,7 @@ class AutomationService : Service() {
         const val NOTIFICATION_ID_SERVICE = 1
         const val NOTIFICATION_ID_MODE_BASE = 10000
         const val ACTION_TURN_OFF_MODE = "com.ndev.moodyroutine.action.TURN_OFF_MODE"
+        const val ACTION_REPOST_SERVICE_NOTIFICATION = "com.ndev.moodyroutine.action.REPOST_SERVICE_NOTIFICATION"
         const val EXTRA_MODE_ID = "extra_mode_id"
 
         private val snoozedApps = java.util.concurrent.ConcurrentHashMap<String, Long>()
@@ -151,27 +152,39 @@ class AutomationService : Service() {
         GeofenceReceiver.serviceStartTime = System.currentTimeMillis()
         AppLogger.i("AutomationService", "AutomationService created")
         createNotificationChannel()
-        val notification = NotificationCompat.Builder(this, "moody_routine_service")
-            .setContentTitle("MoodyRoutine is active")
-            .setContentText("Monitoring for automated triggers & locations")
-            .setSmallIcon(android.R.drawable.ic_menu_preferences)
-            .setPriority(NotificationCompat.PRIORITY_LOW)
-            .build()
+        val notification = buildServiceNotification()
 
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
-            startForeground(
-                1,
-                notification,
-                ServiceInfo.FOREGROUND_SERVICE_TYPE_LOCATION or ServiceInfo.FOREGROUND_SERVICE_TYPE_SPECIAL_USE
-            )
+            try {
+                startForeground(
+                    NOTIFICATION_ID_SERVICE,
+                    notification,
+                    ServiceInfo.FOREGROUND_SERVICE_TYPE_LOCATION or ServiceInfo.FOREGROUND_SERVICE_TYPE_SPECIAL_USE
+                )
+            } catch (e: SecurityException) {
+                AppLogger.w("AutomationService", "Location FGS permission missing, falling back to specialUse: ${e.message}")
+                startForeground(
+                    NOTIFICATION_ID_SERVICE,
+                    notification,
+                    ServiceInfo.FOREGROUND_SERVICE_TYPE_SPECIAL_USE
+                )
+            }
         } else if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-            startForeground(
-                1,
-                notification,
-                ServiceInfo.FOREGROUND_SERVICE_TYPE_LOCATION
-            )
+            try {
+                startForeground(
+                    NOTIFICATION_ID_SERVICE,
+                    notification,
+                    ServiceInfo.FOREGROUND_SERVICE_TYPE_LOCATION
+                )
+            } catch (e: SecurityException) {
+                AppLogger.w("AutomationService", "Location FGS permission missing, falling back to default: ${e.message}")
+                startForeground(
+                    NOTIFICATION_ID_SERVICE,
+                    notification
+                )
+            }
         } else {
-            startForeground(1, notification)
+            startForeground(NOTIFICATION_ID_SERVICE, notification)
         }
 
         val db = MoodyRoutineDatabase.getInstance(this)
@@ -375,21 +388,62 @@ class AutomationService : Service() {
         }
     }
 
+    private fun buildServiceNotification(): android.app.Notification {
+        val openIntent = Intent(this, MainActivity::class.java).apply {
+            flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP
+        }
+        val openPendingIntent = PendingIntent.getActivity(
+            this,
+            NOTIFICATION_ID_SERVICE,
+            openIntent,
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+        )
+
+        val deleteIntent = Intent(this, AutomationService::class.java).apply {
+            action = ACTION_REPOST_SERVICE_NOTIFICATION
+        }
+        val deletePendingIntent = PendingIntent.getService(
+            this,
+            NOTIFICATION_ID_SERVICE,
+            deleteIntent,
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+        )
+
+        return NotificationCompat.Builder(this, CHANNEL_SERVICE)
+            .setContentTitle("MoodyRoutine is active")
+            .setContentText("Monitoring for automated triggers & locations")
+            .setSmallIcon(R.drawable.ic_mode_custom)
+            .setOngoing(true)
+            .setAutoCancel(false)
+            .setOnlyAlertOnce(true)
+            .setPriority(NotificationCompat.PRIORITY_LOW)
+            .setContentIntent(openPendingIntent)
+            .setDeleteIntent(deletePendingIntent)
+            .build()
+    }
+
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
-        if (intent?.action == ACTION_TURN_OFF_MODE) {
-            val modeId = intent.getLongExtra(EXTRA_MODE_ID, -1L)
-            if (modeId != -1L) {
-                scope.launch {
-                    val repo = modeRepository ?: return@launch
-                    val mode = repo.getModeById(modeId).firstOrNull()
-                    if (mode != null) {
-                        AppLogger.i("AutomationService", "Turning off mode ${mode.name} via persistent notification action")
-                        repo.setModeActive(mode.id, false)
-                        if (mode.revertActionsOnExit) {
-                            actionExecutor?.revertMode(mode)
+        when (intent?.action) {
+            ACTION_TURN_OFF_MODE -> {
+                val modeId = intent.getLongExtra(EXTRA_MODE_ID, -1L)
+                if (modeId != -1L) {
+                    scope.launch {
+                        val repo = modeRepository ?: return@launch
+                        val mode = repo.getModeById(modeId).firstOrNull()
+                        if (mode != null) {
+                            AppLogger.i("AutomationService", "Turning off mode ${mode.name} via persistent notification action")
+                            repo.setModeActive(mode.id, false)
+                            if (mode.revertActionsOnExit) {
+                                actionExecutor?.revertMode(mode)
+                            }
                         }
                     }
                 }
+            }
+            ACTION_REPOST_SERVICE_NOTIFICATION -> {
+                AppLogger.i("AutomationService", "Restoring persistent service notification after user dismissal attempt")
+                val manager = getSystemService(Context.NOTIFICATION_SERVICE) as? NotificationManager
+                manager?.notify(NOTIFICATION_ID_SERVICE, buildServiceNotification())
             }
         }
         return START_STICKY
@@ -415,40 +469,20 @@ class AutomationService : Service() {
         }
         activeRestrictedApps = restrictedMap
 
-        // 1. Cancel any legacy separate mode notifications
-        for (id in currentlyNotifiedModeIds) {
+        val newActiveModeIds = activeModes.map { it.id }.toSet()
+
+        // Cancel notifications for modes that are no longer active
+        val removedModeIds = currentlyNotifiedModeIds.filter { it !in newActiveModeIds }
+        for (id in removedModeIds) {
             manager.cancel(NOTIFICATION_ID_MODE_BASE + id.toInt())
+            currentlyNotifiedModeIds.remove(id)
+            AppLogger.i("AutomationService", "Cancelled active mode notification for mode id $id")
         }
-        currentlyNotifiedModeIds.clear()
 
-        if (activeModes.isEmpty()) {
-            // Restore default idle service notification
-            val openIntent = Intent(this, MainActivity::class.java).apply {
-                flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP
-            }
-            val openPendingIntent = PendingIntent.getActivity(
-                this,
-                NOTIFICATION_ID_SERVICE,
-                openIntent,
-                PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
-            )
-
-            val idleNotification = NotificationCompat.Builder(this, CHANNEL_SERVICE)
-                .setContentTitle("MoodyRoutine is active")
-                .setContentText("Monitoring for automated triggers & locations")
-                .setSmallIcon(com.ndev.moodyroutine.R.drawable.ic_mode_custom)
-                .setOngoing(true)
-                .setAutoCancel(false)
-                .setOnlyAlertOnce(true)
-                .setPriority(NotificationCompat.PRIORITY_LOW)
-                .setContentIntent(openPendingIntent)
-                .build()
-
-            manager.notify(NOTIFICATION_ID_SERVICE, idleNotification)
-            AppLogger.i("AutomationService", "Updated service notification to idle state")
-        } else {
-            val mode = activeModes.first()
-            val notifId = NOTIFICATION_ID_SERVICE
+        // Post / update notification for each active mode
+        for (mode in activeModes) {
+            val notifId = NOTIFICATION_ID_MODE_BASE + mode.id.toInt()
+            currentlyNotifiedModeIds.add(mode.id)
 
             val openIntent = Intent(this, MainActivity::class.java).apply {
                 flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP
@@ -485,11 +519,7 @@ class AutomationService : Service() {
                 0xFF3B82F6.toInt()
             }
 
-            val title = if (activeModes.size == 1) {
-                "${mode.name} mode is on"
-            } else {
-                "${activeModes.joinToString { it.name }} are on"
-            }
+            val title = "${mode.name} mode is on"
 
             val builder = NotificationCompat.Builder(this, CHANNEL_ACTIVE_MODES)
                 .setContentTitle(title)
@@ -516,8 +546,9 @@ class AutomationService : Service() {
 
             val notification = builder.build()
             manager.notify(notifId, notification)
-            AppLogger.i("AutomationService", "Updated service notification for active mode: ${mode.name} with icon ${mode.iconName}")
+            AppLogger.i("AutomationService", "Updated active mode notification for: ${mode.name} (id=$notifId)")
         }
+
     }
 
     override fun onDestroy() {

@@ -16,8 +16,8 @@ android {
         applicationId = "com.ndev.moodyroutine"
         minSdk = 26
         targetSdk = 35
-        versionCode = 6
-        versionName = "0.1.0-pre6"
+        versionCode = 7
+        versionName = "0.1.0-pre7"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         vectorDrawables {

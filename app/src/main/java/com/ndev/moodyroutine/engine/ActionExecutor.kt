@@ -179,19 +179,19 @@ class ActionExecutor(private val context: Context) {
 
             if (prefs.contains("${prefix}volume_ring")) {
                 val vol = prefs.getInt("${prefix}volume_ring", -1)
-                if (vol >= 0) audioManager.setStreamVolume(AudioManager.STREAM_RING, vol, 0)
+                if (vol >= 0) safeSetStreamVolume(AudioManager.STREAM_RING, vol)
             }
             if (prefs.contains("${prefix}volume_media")) {
                 val vol = prefs.getInt("${prefix}volume_media", -1)
-                if (vol >= 0) audioManager.setStreamVolume(AudioManager.STREAM_MUSIC, vol, 0)
+                if (vol >= 0) safeSetStreamVolume(AudioManager.STREAM_MUSIC, vol)
             }
             if (prefs.contains("${prefix}volume_alarm")) {
                 val vol = prefs.getInt("${prefix}volume_alarm", -1)
-                if (vol >= 0) audioManager.setStreamVolume(AudioManager.STREAM_ALARM, vol, 0)
+                if (vol >= 0) safeSetStreamVolume(AudioManager.STREAM_ALARM, vol)
             }
             if (prefs.contains("${prefix}volume_notif")) {
                 val vol = prefs.getInt("${prefix}volume_notif", -1)
-                if (vol >= 0) audioManager.setStreamVolume(AudioManager.STREAM_NOTIFICATION, vol, 0)
+                if (vol >= 0) safeSetStreamVolume(AudioManager.STREAM_NOTIFICATION, vol)
             }
 
             if (prefs.contains("${prefix}dnd_filter")) {
@@ -231,8 +231,12 @@ class ActionExecutor(private val context: Context) {
 
             if (prefs.contains("${prefix}dark_mode")) {
                 val nightMode = prefs.getInt("${prefix}dark_mode", UiModeManager.MODE_NIGHT_AUTO)
-                uiModeManager.nightMode = nightMode
-                AppLogger.i("ActionExecutor", "Reverted dark mode to $nightMode for $entityName")
+                try {
+                    uiModeManager.nightMode = nightMode
+                    AppLogger.i("ActionExecutor", "Reverted dark mode to $nightMode for $entityName")
+                } catch (e: Exception) {
+                    AppLogger.e("ActionExecutor", "Could not restore dark mode", e)
+                }
             }
 
             // Clear snapshot
@@ -255,8 +259,12 @@ class ActionExecutor(private val context: Context) {
                 when (action.type) {
                     ActionType.SET_RINGER_SILENT,
                     ActionType.SET_RINGER_VIBRATE -> {
-                        audioManager.ringerMode = AudioManager.RINGER_MODE_NORMAL
-                        AppLogger.i("ActionExecutor", "Fallback: restored ringer to NORMAL for $entityName")
+                        try {
+                            audioManager.ringerMode = AudioManager.RINGER_MODE_NORMAL
+                            AppLogger.i("ActionExecutor", "Fallback: restored ringer to NORMAL for $entityName")
+                        } catch (e: Exception) {
+                            AppLogger.e("ActionExecutor", "Fallback: failed to restore ringer mode", e)
+                        }
                     }
                     ActionType.SET_DND_ON,
                     ActionType.SET_DND_PRIORITY_ONLY,
@@ -442,16 +450,22 @@ class ActionExecutor(private val context: Context) {
         }
     }
 
+    private fun safeSetStreamVolume(streamType: Int, targetVolume: Int) {
+        try {
+            audioManager.setStreamVolume(streamType, targetVolume, 0)
+            AppLogger.i("ActionExecutor", "Set stream $streamType volume to $targetVolume")
+        } catch (e: SecurityException) {
+            AppLogger.w("ActionExecutor", "Could not set stream $streamType volume (requires DND/Notification Policy access): ${e.message}")
+        } catch (e: Exception) {
+            AppLogger.e("ActionExecutor", "Failed to set stream $streamType volume", e)
+        }
+    }
+
     private fun setVolume(streamType: Int, volumeStr: String?) {
         val volumePercent = volumeStr?.toIntOrNull() ?: return
         val maxVolume = audioManager.getStreamMaxVolume(streamType)
         val targetVolume = ((maxVolume * volumePercent) / 100).coerceIn(0, maxVolume)
-        try {
-            audioManager.setStreamVolume(streamType, targetVolume, 0)
-            AppLogger.i("ActionExecutor", "Set stream $streamType volume to $volumePercent% ($targetVolume/$maxVolume)")
-        } catch (e: SecurityException) {
-            AppLogger.w("ActionExecutor", "Could not set stream $streamType volume (requires DND access)", e)
-        }
+        safeSetStreamVolume(streamType, targetVolume)
     }
 
     private fun setDndMode(filter: Int) {
